@@ -19,13 +19,19 @@ npm run tauri dev
 
 ## 打包
 
-### Mac（本机）
+### Mac（本机，可直接出安装包）
 
 ```bash
 npm run build:app
 ```
 
-产物：`src-tauri/target/release/bundle/dmg/`、`macos/`
+产物：
+- `src-tauri/target/release/bundle/dmg/*.dmg`（推荐发给别人）
+- `src-tauri/target/release/bundle/macos/TextFlow.app`
+
+也可在 GitHub Actions 跑 **Release macOS**，从 Artifacts 下载 DMG。
+
+> 未签名的 Mac 包：打开时若被拦截，右键 App → 打开，或到「系统设置 → 隐私与安全性」允许。
 
 ### Windows 安装包（`.exe`）
 
