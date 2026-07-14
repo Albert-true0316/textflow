@@ -1,3 +1,4 @@
+import type { ListItem } from "mdast";
 import { parseTaskMeta } from "./format";
 import { collectIds, generateId } from "./ids";
 import {
