@@ -75,6 +75,25 @@ describe("applyOps", () => {
     );
   });
 
+  it("clamps subtask due to parent due on decompose", () => {
+    const md = `# 待办
+
+- [ ] 答辩 🗓️2026-07-17 #工作 ^p1a2
+`;
+    const { source } = applyOps(md, [
+      {
+        op: "decompose",
+        id: "p1a2",
+        subtasks: [
+          { text: "步骤一", due: "2026-07-20" },
+          { text: "步骤二" },
+        ],
+      },
+    ]);
+    expect(source).toContain("🗓️2026-07-17");
+    expect(source).not.toContain("🗓️2026-07-20");
+  });
+
   it("preserves non-task markdown content", () => {
     const md = `# 待办
 

@@ -225,8 +225,8 @@ export function useAi() {
     }
   }
 
-  function decomposePrompt(id: string, text: string) {
-    return buildDecomposeUtterance(id, text, settings.value.decomposeCount);
+  function decomposePrompt(id: string, text: string, due?: string) {
+    return buildDecomposeUtterance(id, text, settings.value.decomposeCount, due);
   }
 
   void refreshKeyStatus();

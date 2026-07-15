@@ -91,9 +91,10 @@ export function systemPrompt(today: string, decomposeCount = 4): string {
 规则：
 1. 只通过 apply_todo_ops 工具输出，不要改写整份文件，不要输出 Markdown 正文。
 2. 动已有任务时 id 必须是上下文里已有的那串（例如 a3f2），不要带 ^ 前缀；认不准就返回空 ops，别瞎猜。
-3. 「今天 / 明天 / 本周五 / 下周一」等相对日期一律换成 YYYY-MM-DD。
-4. 拆解用 decompose：id 填要拆的那条任务（不带 ^），再输出 3–6 条具体、可执行、有动作动词的子任务（默认约 ${decomposeCount} 条，可 ±1）；禁止「思考一下」「准备准备」这类空话。子任务 ID 由执行器生成，不要自造 ^id。
-5. 听不懂就返回空 ops 数组。`;
+3. 「今天 / 明天 / 本周五 / 下周一 / 7月18日」等时间线索一律换算成 due 字段（YYYY-MM-DD）；改期用 edit 的 new_due。
+4. add 新增任务时：用户只要提到时间（含隐含「今晚」「这周末」「月底前某天」），必须填 due；完全没提时间可不填。
+5. 拆解用 decompose：id 填要拆的那条任务（不带 ^），子任务尽量带可执行的 due（若父任务有截止日期，子任务 due 应不晚于父任务）；输出 3–6 条具体子任务（默认约 ${decomposeCount} 条，可 ±1）；禁止空话。子任务 ID 由执行器生成，不要自造 ^id。
+6. 听不懂就返回空 ops 数组。`;
 }
 
 function asString(v: unknown): string | undefined {

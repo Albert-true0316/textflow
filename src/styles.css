@@ -24,7 +24,7 @@
   --shadow: 0 14px 32px color-mix(in srgb, var(--blue-deep) 14%, transparent);
   --shadow-collapsed: 0 3px 10px color-mix(in srgb, var(--blue-deep) 10%, transparent);
 
-  /* 液态玻璃 */
+  /* 玻璃材质 */
   --glass-bg: color-mix(in srgb, var(--white) 72%, var(--blue-100));
   --glass-bg-strong: color-mix(in srgb, var(--white) 88%, var(--blue-100));
   --glass-border: color-mix(in srgb, var(--white) 60%, var(--blue-200));
@@ -87,6 +87,7 @@ html[data-platform="windows"] .glass-strong {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   background: color-mix(in srgb, var(--bg-elevated) 92%, var(--accent) 8%);
+  border: none;
   box-shadow:
     var(--glass-shadow),
     inset 0 1px 0 var(--glass-highlight);
@@ -138,7 +139,7 @@ input {
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  border: 1px solid var(--glass-border);
+  border: none;
   box-shadow:
     var(--glass-shadow),
     inset 0 1px 0 var(--glass-highlight);
@@ -148,7 +149,7 @@ input {
   background: var(--glass-bg-strong);
   backdrop-filter: blur(calc(var(--glass-blur) + 8px)) saturate(var(--glass-saturate));
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 8px)) saturate(var(--glass-saturate));
-  border: 1px solid var(--glass-border);
+  border: none;
   box-shadow:
     var(--glass-shadow),
     inset 0 1px 0 var(--glass-highlight);

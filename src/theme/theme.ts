@@ -1,5 +1,5 @@
 /**
- * 主题：浅色 / 深色 / 跟随系统
+ * 主题：浅色 / 深夜 / 跟随系统
  */
 export type ThemeMode = "light" | "dark" | "system";
 
@@ -17,7 +17,7 @@ function resolveTheme(mode: ThemeMode): "light" | "dark" {
   return mode;
 }
 
-export function applyTheme(mode: ThemeMode = "light") {
+export function applyTheme(mode: ThemeMode = "dark") {
   const effective = resolveTheme(mode);
   document.documentElement.dataset.theme = effective;
   document.documentElement.dataset.themeMode = mode;
@@ -28,7 +28,7 @@ export function getThemeMode(): ThemeMode {
   if (stored === "light" || stored === "dark" || stored === "system") {
     return stored;
   }
-  return "system";
+  return "dark";
 }
 
 export function initTheme() {

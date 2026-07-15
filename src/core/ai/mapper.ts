@@ -155,6 +155,10 @@ export function buildDecomposeUtterance(
   id: string,
   text: string,
   count: number,
+  due?: string,
 ): string {
-  return `帮我把任务 id=${id}（「${text}」）拆成 ${count} 条左右（3–6 条内）马上能动手做的小事。用 decompose，id 必须填 ${id}（不要带 ^），子任务要带动作（比如「写」「打」「整理」），别写空泛的「准备一下」。`;
+  const dueLine = due
+    ? `父任务截止 ${due}：子任务 due 必须 ≤ 该日，尽量从今天起均匀排到截止日前。`
+    : "子任务若能确定时间，请填 due（YYYY-MM-DD）。";
+  return `帮我把任务 id=${id}（「${text}」）拆成 ${count} 条左右（3–6 条内）马上能动手做的小事。用 decompose，id 必须填 ${id}（不要带 ^）。${dueLine}子任务要带动作（比如「写」「打」「整理」），别写空泛的「准备一下」。`;
 }

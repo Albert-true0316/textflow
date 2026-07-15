@@ -11,3 +11,4 @@ src-tauri/WixTools/
 .env
 .env.*
 !.env.example
+dist-release/

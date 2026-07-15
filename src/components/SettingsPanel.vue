@@ -55,7 +55,7 @@ const keyModel = computed({
       >
         <option value="system">跟随系统</option>
         <option value="light">浅色</option>
-        <option value="dark">深色</option>
+        <option value="dark">深夜</option>
       </select>
     </section>
 
@@ -72,7 +72,6 @@ const keyModel = computed({
 
     <section class="block">
       <label class="label">API Key</label>
-      <p class="hint">保存在本机应用数据目录（权限 600），不再使用系统钥匙串，避免 macOS 反复索要密码。</p>
       <input
         v-model="keyModel"
         class="field"
@@ -125,7 +124,7 @@ const keyModel = computed({
           :value="decomposeCount"
           @change="emit('update:decomposeCount', Number(($event.target as HTMLInputElement).value))"
         />
-        <span class="hint">默认 4，范围 3–6（指导.md F006）</span>
+        <span class="hint">默认 4，范围 3–6</span>
       </div>
     </section>
 
@@ -145,16 +144,17 @@ const keyModel = computed({
     </div>
   </div>
 </template>
-
 <style scoped>
 .settings {
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 12px;
-  border-radius: 10px;
-  max-height: 55%;
+  border-radius: 12px;
+  max-height: min(72vh, 100%);
   overflow: auto;
+  width: 100%;
+  box-shadow: var(--glass-shadow);
 }
 
 .settings-head {

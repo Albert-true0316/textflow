@@ -1,26 +1,66 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import SettingsPanel from "./components/SettingsPanel.vue";
+import ScheduleView from "./components/ScheduleView.vue";
+import TagsView from "./components/TagsView.vue";
 import TaskList from "./components/TaskList.vue";
 import { useAi } from "./composables/useAi";
 import { usePlatform } from "./composables/usePlatform";
 import { useTheme } from "./composables/useTheme";
 import { useTodoFile } from "./composables/useTodoFile";
+import { flattenTasks } from "./core/parser";
+import {
+  applyOrbWindow,
+  captureWindowGeometry,
+  detectEdgeSide,
+  expandBesideOrb,
+  ORB_SIZE,
+  type OrbSide,
+  type WindowGeometry,
+} from "./core/edgeOrb";
 import type { ProviderId } from "./core/ai/providers";
 import type { ThemeMode } from "./theme/theme";
 
 const collapsed = ref(false);
+const orb = ref(false);
+const orbSide = ref<OrbSide>("right");
 const alwaysOnTop = ref(true);
 const zoomed = ref(false);
 const expandedHeight = ref(480);
-const COLLAPSED_HEIGHT = 46;
+const COLLAPSED_HEIGHT = 56;
 const NORMAL_HEIGHT = 480;
 const ZOOM_HEIGHT = 640;
 const menuOpen = ref(false);
 const menuPopoverRef = ref<HTMLElement | null>(null);
-const menuButtonRef = ref<HTMLElement | null>(null);
+const menuButtonRef = ref<HTMLButtonElement | null>(null);
+const savedBeforeOrb = ref<WindowGeometry | null>(null);
+/** 展开后短时抑制再次贴边成球，避免弹回去 */
+let orbCooldownUntil = 0;
+let edgeMoveTimer: ReturnType<typeof setTimeout> | null = null;
+let unlistenMoved: (() => void) | null = null;
+let applyingOrb = false;
+
+type ViewMode = "list" | "schedule" | "tags";
+const VIEW_KEY = "textflow.viewMode";
+function loadViewMode(): ViewMode {
+  try {
+    const v = localStorage.getItem(VIEW_KEY);
+    if (v === "schedule" || v === "tags") return v;
+  } catch {
+    /* ignore */
+  }
+  return "list";
+}
+const viewMode = ref<ViewMode>(loadViewMode());
+watch(viewMode, (mode) => {
+  try {
+    localStorage.setItem(VIEW_KEY, mode);
+  } catch {
+    /* ignore */
+  }
+});
 
 const { isMac } = usePlatform();
 const { themeMode, updateThemeMode } = useTheme();
@@ -106,6 +146,99 @@ watch(menuOpen, (open) => {
 
 onUnmounted(() => {
   document.removeEventListener("pointerdown", onDocumentPointerDown, true);
+  if (edgeMoveTimer) clearTimeout(edgeMoveTimer);
+  unlistenMoved?.();
+});
+
+async function enterOrb(side: OrbSide) {
+  if (orb.value || applyingOrb) return;
+  if (Date.now() < orbCooldownUntil) return;
+  applyingOrb = true;
+  try {
+    if (!savedBeforeOrb.value) {
+      const geo = await captureWindowGeometry();
+      if (collapsed.value) {
+        geo.height = zoomed.value
+          ? ZOOM_HEIGHT
+          : expandedHeight.value || NORMAL_HEIGHT;
+        geo.width = Math.max(geo.width, 340);
+      }
+      savedBeforeOrb.value = geo;
+    }
+    menuOpen.value = false;
+    settingsOpen.value = false;
+    collapsed.value = true;
+    orbSide.value = side;
+    orb.value = true;
+    await nextTick();
+    await applyOrbWindow(side);
+  } finally {
+    applyingOrb = false;
+  }
+}
+
+async function expandFromOrb() {
+  if (!orb.value) return;
+  applyingOrb = true;
+  try {
+    const geo = savedBeforeOrb.value;
+    const side = orbSide.value;
+    const width = geo?.width ?? 340;
+    const height = zoomed.value
+      ? ZOOM_HEIGHT
+      : geo?.height || expandedHeight.value || NORMAL_HEIGHT;
+    orb.value = false;
+    collapsed.value = false;
+    savedBeforeOrb.value = null;
+    await nextTick();
+    await expandBesideOrb({ width, height }, side);
+    orbCooldownUntil = Date.now() + 1200;
+  } finally {
+    applyingOrb = false;
+  }
+}
+
+/** 拖动时 Tauri 会吃掉 pointer；仅真正点击才展开 */
+let orbIgnoreClickUntil = 0;
+function onOrbActivate() {
+  if (Date.now() < orbIgnoreClickUntil) return;
+  void expandFromOrb();
+}
+
+function scheduleEdgeCheck() {
+  if (orb.value) {
+    // 球体被拖动时忽略随后的点击，避免松手立刻展开
+    orbIgnoreClickUntil = Date.now() + 280;
+  }
+  if (edgeMoveTimer) clearTimeout(edgeMoveTimer);
+  edgeMoveTimer = setTimeout(() => {
+    void checkEdgeSnap();
+  }, 160);
+}
+
+async function checkEdgeSnap() {
+  if (applyingOrb || orb.value) return;
+  if (Date.now() < orbCooldownUntil) return;
+  try {
+    const win = getCurrentWindow();
+    const pos = await win.outerPosition();
+    const side = await detectEdgeSide(pos);
+    if (side) await enterOrb(side);
+  } catch {
+    /* 浏览器预览或权限不足时忽略 */
+  }
+}
+
+onMounted(() => {
+  void (async () => {
+    try {
+      unlistenMoved = await getCurrentWindow().onMoved(() => {
+        scheduleEdgeCheck();
+      });
+    } catch {
+      /* ignore */
+    }
+  })();
 });
 
 async function openSettingsFromMenu() {
@@ -154,7 +287,8 @@ async function decomposeTask(id: string, text: string) {
     await openSettings();
     return;
   }
-  const utterance = decomposePrompt(id, text);
+  const task = flattenTasks(tasks.value).find((t) => t.id === id);
+  const utterance = decomposePrompt(id, text, task?.due);
   const result = await proposeFromNaturalLanguage(utterance, tasks.value, {
     forceDecomposeId: id,
   });
@@ -172,6 +306,11 @@ function onThemeSelect(mode: ThemeMode) {
 }
 
 async function toggleMiniPlayer() {
+  if (orb.value) {
+    await expandFromOrb();
+    return;
+  }
+
   const win = getCurrentWindow();
   const size = await win.innerSize();
   const scale = await win.scaleFactor();
@@ -183,7 +322,7 @@ async function toggleMiniPlayer() {
     collapsed.value = true;
     menuOpen.value = false;
     await nextTick();
-    await win.setMinSize(new LogicalSize(280, 44));
+    await win.setMinSize(new LogicalSize(280, COLLAPSED_HEIGHT));
     await win.setSize(new LogicalSize(logicalWidth, COLLAPSED_HEIGHT));
   } else {
     collapsed.value = false;
@@ -200,6 +339,10 @@ async function minimizeToDock() {
 
 async function toggleZoom() {
   const win = getCurrentWindow();
+  if (orb.value) {
+    await expandFromOrb();
+    return;
+  }
   if (collapsed.value) {
     await toggleMiniPlayer();
     return;
@@ -225,7 +368,25 @@ async function closeToTray() {
 </script>
 
 <template>
-  <div class="widget" :class="{ collapsed, 'is-windows': !isMac }">
+  <div
+    class="widget"
+    :class="{ collapsed, orb, 'is-windows': !isMac }"
+    :style="orb ? { width: `${ORB_SIZE}px`, height: `${ORB_SIZE}px` } : undefined"
+  >
+    <!-- 贴边球体：拖动移动，轻点展开 -->
+    <button
+      v-if="orb"
+      type="button"
+      class="orb-face"
+      title="轻点展开 · 按住可拖动"
+      aria-label="展开 TextFlow"
+      data-tauri-drag-region
+      @click="onOrbActivate"
+    >
+      <img class="orb-icon" src="/app-icon.png" alt="" draggable="false" />
+    </button>
+
+    <template v-else>
     <header
       class="titlebar glass"
       :class="{ 'titlebar-mac': isMac, 'titlebar-win': !isMac }"
@@ -358,11 +519,22 @@ async function closeToTray() {
       >
         撤销上一次写入
       </button>
+      <button
+        v-if="filePath"
+        type="button"
+        class="menu-item muted"
+        @click="menuOpen = false; clearBinding()"
+      >
+        解除绑定
+      </button>
     </div>
 
-    <main v-show="!collapsed" class="body">
+    <div
+      v-if="settingsOpen && !collapsed && !orb"
+      class="settings-backdrop"
+      @pointerdown.self="closeSettings"
+    >
       <SettingsPanel
-        v-if="settingsOpen"
         :provider-id="providerId"
         :providers="PROVIDERS"
         :key-draft="keyDraft"
@@ -388,43 +560,16 @@ async function closeToTray() {
         @clear-key="clearKey"
         @close="closeSettings"
       />
+    </div>
 
-      <div class="toolbar">
-        <button
-          type="button"
-          class="text-btn"
-          :disabled="binding"
-          @click="bindMarkdownFile"
-        >
-          {{ filePath ? "换文件" : "打开 .md" }}
-        </button>
-        <span v-if="fileName" class="file-name" :title="filePath ?? undefined">
-          {{ fileName }}
-        </span>
-        <button
-          v-if="filePath"
-          type="button"
-          class="text-btn muted"
-          title="撤销上一次写操作"
-          :disabled="!canUndo || writing"
-          @click="undo"
-        >
-          撤销
-        </button>
-        <button
-          v-if="filePath"
-          type="button"
-          class="text-btn muted"
-          title="解除绑定"
-          @click="clearBinding"
-        >
-          清除
-        </button>
-      </div>
-
-      <p v-if="displayError" class="error">{{ displayError }}</p>
-
-      <div v-if="hasPending" class="preview">
+    <div
+      v-if="hasPending && !collapsed && !orb"
+      class="settings-backdrop preview-backdrop"
+      role="dialog"
+      aria-label="确认待执行操作"
+      @pointerdown.self="clearPending"
+    >
+      <div class="preview glass-strong" @pointerdown.stop>
         <p class="preview-title">将执行以下操作</p>
         <ul>
           <li v-for="(line, i) in pendingLines" :key="i">{{ line }}</li>
@@ -439,9 +584,76 @@ async function closeToTray() {
           <button type="button" class="text-btn muted" @click="clearPending">取消</button>
         </div>
       </div>
+    </div>
+
+    <main v-show="!collapsed" class="body">
+      <div class="toolbar">
+        <div v-if="filePath" class="view-tabs" role="tablist" aria-label="视图切换">
+          <button
+            type="button"
+            class="view-tab"
+            :class="{ active: viewMode === 'list' }"
+            role="tab"
+            :aria-selected="viewMode === 'list'"
+            @click="viewMode = 'list'"
+          >
+            列表
+          </button>
+          <button
+            type="button"
+            class="view-tab"
+            :class="{ active: viewMode === 'schedule' }"
+            role="tab"
+            :aria-selected="viewMode === 'schedule'"
+            @click="viewMode = 'schedule'"
+          >
+            日程
+          </button>
+          <button
+            type="button"
+            class="view-tab"
+            :class="{ active: viewMode === 'tags' }"
+            role="tab"
+            :aria-selected="viewMode === 'tags'"
+            @click="viewMode = 'tags'"
+          >
+            分类
+          </button>
+        </div>
+        <span
+          v-if="fileName"
+          class="file-name"
+          :title="filePath ?? undefined"
+        >
+          {{ fileName }}
+        </span>
+        <span v-else class="file-hint">未打开文件 · ☰ 菜单可绑定</span>
+      </div>
+
+      <p v-if="displayError" class="error">{{ displayError }}</p>
 
       <TaskList
-        v-if="filePath"
+        v-if="filePath && viewMode === 'list'"
+        :tasks="tasks"
+        @toggle="toggleTask"
+        @remove="deleteTask"
+        @decompose="decomposeTask"
+        @edit="editTask"
+        @add-under="addUnderTask"
+      />
+
+      <ScheduleView
+        v-else-if="filePath && viewMode === 'schedule'"
+        :tasks="tasks"
+        @toggle="toggleTask"
+        @remove="deleteTask"
+        @decompose="decomposeTask"
+        @edit="editTask"
+        @add-under="addUnderTask"
+      />
+
+      <TagsView
+        v-else-if="filePath && viewMode === 'tags'"
         :tasks="tasks"
         @toggle="toggleTask"
         @remove="deleteTask"
@@ -451,8 +663,8 @@ async function closeToTray() {
       />
 
       <div v-else class="empty">
-        <p>选择一份本地 Markdown 作为任务库</p>
-        <p class="hint">说人话就行，例如「买菜搞定了，加个周五交报告」</p>
+        <p>尚未绑定任务文件</p>
+        <p class="hint">点击右上角 ☰ →「打开 Markdown…」</p>
       </div>
 
       <div class="composer">
@@ -463,7 +675,11 @@ async function closeToTray() {
             !filePath
               ? '先打开 .md 文件'
               : hasKey
-                ? '随便说：买菜搞定了 / 帮我拆答辩…'
+                ? viewMode === 'schedule'
+                  ? '说：明天交报告 / 买菜改到周五…'
+                  : viewMode === 'tags'
+                    ? '说：把交周报标成 #工作…'
+                    : '随便说：买菜搞定了 / 帮我拆答辩…'
                 : '输入任务，Enter 添加顶层'
           "
           :disabled="!filePath || writing || aiBusy"
@@ -483,6 +699,7 @@ async function closeToTray() {
       </div>
       <p v-if="aiBusy" class="hint">AI 理解中…</p>
     </main>
+    </template>
   </div>
 </template>
 
@@ -495,7 +712,7 @@ async function closeToTray() {
   background:
     radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--blue) 10%, transparent), transparent 55%),
     linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg) 100%);
-  border: 1px solid var(--border);
+  border: none;
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   overflow: hidden;
@@ -504,12 +721,76 @@ async function closeToTray() {
 
 .widget.collapsed {
   height: 100%;
-  border-radius: 10px;
+  border-radius: 18px;
   box-shadow: var(--shadow-collapsed);
 }
 
 .widget.is-windows.collapsed {
-  border-radius: 6px;
+  border-radius: 14px;
+}
+
+.widget.orb {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.orb-face {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  overflow: hidden;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--blue-deep) 22%, transparent);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.orb-face:focus,
+.orb-face:focus-visible {
+  outline: none;
+}
+
+.orb-face:hover {
+  transform: scale(1.04);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--blue-deep) 18%, transparent);
+}
+
+.orb-face:active {
+  transform: scale(0.96);
+}
+
+.orb-icon {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.widget.collapsed .titlebar {
+  padding: 14px 14px;
+  border-bottom: none;
+  flex: 1;
+  align-items: center;
+}
+
+.widget.collapsed .name {
+  font-size: 13px;
 }
 
 .titlebar {
@@ -521,12 +802,7 @@ async function closeToTray() {
   user-select: none;
   cursor: grab;
   flex-shrink: 0;
-  border-radius: 0;
-  border-left: none;
-  border-right: none;
-  border-top: none;
-  /* 玻璃底由 .glass 提供；这里只留底部分隔高光 */
-  border-bottom-color: color-mix(in srgb, var(--glass-border) 80%, transparent);
+  border: none;
 }
 
 .titlebar:active {
@@ -675,6 +951,64 @@ async function closeToTray() {
   gap: 2px;
 }
 
+.settings-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 28;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 44px 10px 12px;
+  background: color-mix(in srgb, var(--blue-deep) 28%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.preview-backdrop {
+  z-index: 29;
+  align-items: center;
+  padding: 20px 12px;
+}
+
+.preview-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.preview {
+  width: 100%;
+  max-width: 100%;
+  max-height: min(70vh, 100%);
+  overflow: auto;
+  padding: 14px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: var(--glass-shadow);
+}
+
+.preview-title {
+  font-weight: 650;
+  font-size: 13px;
+}
+
+.preview ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.45;
+}
+
+.preview .hint {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 .menu-item {
   text-align: left;
   padding: 8px 10px;
@@ -690,6 +1024,10 @@ async function closeToTray() {
 .menu-item:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.menu-item.muted {
+  color: var(--text-muted);
 }
 
 .chrome-btn {
@@ -725,6 +1063,38 @@ async function closeToTray() {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  flex-wrap: wrap;
+}
+
+.view-tabs {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.view-tab {
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.view-tab + .view-tab {
+  border-left: 1px solid var(--border);
+}
+
+.view-tab.active {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+
+.view-tab:hover:not(.active) {
+  background: color-mix(in srgb, var(--accent-soft) 50%, transparent);
 }
 
 .text-btn {
@@ -762,6 +1132,12 @@ async function closeToTray() {
   font-size: 12px;
 }
 
+.file-hint {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .hint {
   color: var(--text-muted);
   font-size: 12px;
@@ -786,35 +1162,6 @@ async function closeToTray() {
   font-size: 11px;
   color: var(--text);
   opacity: 0.9;
-}
-
-.preview-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.preview {
-  padding: 10px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--blue-100) 45%, var(--white));
-  border: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.preview-title {
-  font-weight: 650;
-  font-size: 12px;
-}
-
-.preview ul {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
 .composer {

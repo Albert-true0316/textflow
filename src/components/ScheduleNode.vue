@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from "vue";
-import type { Task } from "../core/types";
-import { taskProgress } from "../core/parser";
+import type { ScheduleTask } from "../core/schedule";
 import { isOverdue, overdueDays } from "../core/schedule";
-import TaskItem from "./TaskItem.vue";
+import { taskProgress } from "../core/parser";
+import ScheduleNode from "./ScheduleNode.vue";
 
 const props = defineProps<{
-  task: Task;
+  task: ScheduleTask;
   depth?: number;
-  /** 日程视图：始终显示「拆」按钮 */
-  pinDecompose?: boolean;
+  todayIso?: string;
 }>();
 
 const emit = defineEmits<{
@@ -20,31 +19,26 @@ const emit = defineEmits<{
   "add-under": [parentId: string, text: string];
 }>();
 
-const progress = computed(() => taskProgress(props.task));
 const depth = computed(() => props.depth ?? 0);
-const today = new Date();
+const progress = computed(() => taskProgress(props.task));
+const today = computed(() => {
+  if (!props.todayIso) return new Date();
+  const [y, m, d] = props.todayIso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+});
 const taskOverdue = computed(
-  () => !!props.task.due && !props.task.completed && isOverdue(props.task.due, today),
+  () => !!props.task.due && !props.task.completed && isOverdue(props.task.due, today.value),
 );
 const taskOverdueDays = computed(() =>
-  props.task.due ? overdueDays(props.task.due, today) : 0,
+  props.task.due ? overdueDays(props.task.due, today.value) : 0,
 );
 const editing = ref(false);
-const adding = ref(false);
 const draft = ref("");
-const addDraft = ref("");
 const inputRef = ref<HTMLInputElement | null>(null);
-const addInputRef = ref<HTMLInputElement | null>(null);
-const rowRef = ref<HTMLDivElement | null>(null);
 
 function onToggle() {
   if (!props.task.id || editing.value) return;
   emit("toggle", props.task.id, !props.task.completed);
-}
-
-function onRemove() {
-  if (!props.task.id) return;
-  emit("remove", props.task.id);
 }
 
 function onDecompose() {
@@ -52,23 +46,13 @@ function onDecompose() {
   emit("decompose", props.task.id, props.task.text);
 }
 
-function isModKey(e: KeyboardEvent) {
-  return e.metaKey || e.ctrlKey;
-}
-
 async function startEdit() {
   if (!props.task.id) return;
-  adding.value = false;
   editing.value = true;
   draft.value = props.task.text;
   await nextTick();
   inputRef.value?.focus();
   inputRef.value?.select();
-}
-
-function cancelEdit() {
-  editing.value = false;
-  draft.value = props.task.text;
 }
 
 function commitEdit() {
@@ -79,43 +63,26 @@ function commitEdit() {
   emit("edit", props.task.id, next);
 }
 
-async function startAdd() {
-  if (!props.task.id || editing.value) return;
+function cancelEdit() {
   editing.value = false;
-  adding.value = true;
-  addDraft.value = "";
-  await nextTick();
-  addInputRef.value?.focus();
+  draft.value = props.task.text;
 }
 
-function cancelAdd() {
-  adding.value = false;
-  addDraft.value = "";
-}
-
-function commitAdd() {
-  if (!adding.value || !props.task.id) return;
-  const text = addDraft.value.trim();
-  adding.value = false;
-  addDraft.value = "";
-  if (!text) return;
-  emit("add-under", props.task.id, text);
-}
-
-async function commitEditThenAdd() {
-  if (!editing.value || !props.task.id) return;
-  const next = draft.value.trim();
-  editing.value = false;
-  if (next && next !== props.task.text) {
-    emit("edit", props.task.id, next);
+function onEditKeydown(e: KeyboardEvent) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    commitEdit();
+    return;
   }
-  await startAdd();
+  if (e.key === "Escape") {
+    e.preventDefault();
+    cancelEdit();
+  }
 }
 
 function onRowKeydown(e: KeyboardEvent) {
-  if (editing.value || adding.value) return;
-
-  if (e.key === "Enter" && isModKey(e)) {
+  if (editing.value) return;
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
     onToggle();
     return;
@@ -125,72 +92,17 @@ function onRowKeydown(e: KeyboardEvent) {
     void startEdit();
     return;
   }
-  if (e.key === "Tab" && !e.shiftKey) {
-    e.preventDefault();
-    void startAdd();
-    return;
-  }
-  if (e.key === "d" && isModKey(e) && e.shiftKey) {
+  if ((e.key === "d" || e.key === "D") && (e.metaKey || e.ctrlKey) && e.shiftKey) {
     e.preventDefault();
     onDecompose();
-    return;
   }
-  if (e.key === "Backspace" || e.key === "Delete") {
-    e.preventDefault();
-    onRemove();
-  }
-}
-
-function onEditKeydown(e: KeyboardEvent) {
-  if (e.key === "Enter" && isModKey(e)) {
-    e.preventDefault();
-    commitEdit();
-    onToggle();
-    return;
-  }
-  if (e.key === "Enter") {
-    e.preventDefault();
-    commitEdit();
-    return;
-  }
-  if (e.key === "Tab" && !e.shiftKey) {
-    e.preventDefault();
-    void commitEditThenAdd();
-    return;
-  }
-  if (e.key === "Escape") {
-    e.preventDefault();
-    cancelEdit();
-    rowRef.value?.focus();
-  }
-}
-
-function onAddKeydown(e: KeyboardEvent) {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    commitAdd();
-    rowRef.value?.focus();
-    return;
-  }
-  if (e.key === "Escape") {
-    e.preventDefault();
-    cancelAdd();
-    rowRef.value?.focus();
-  }
-}
-
-function onTextClick() {
-  void startEdit();
 }
 </script>
 
 <template>
-  <li
-    class="task-item"
-    :class="{ done: task.completed, editing, adding, nested: depth > 0, overdue: taskOverdue }"
-  >
+  <li class="node" :class="{ done: task.completed, nested: depth > 0, overdue: taskOverdue }">
+    <p v-if="task.parentPath && depth === 0" class="path">{{ task.parentPath }}</p>
     <div
-      ref="rowRef"
       class="row"
       :class="{ overdue: taskOverdue }"
       tabindex="0"
@@ -217,14 +129,15 @@ function onTextClick() {
           @keydown="onEditKeydown"
           @blur="commitEdit"
         />
-        <span v-else class="text" @click.stop="onTextClick">{{ task.text || "(无标题)" }}</span>
-        <span v-if="progress && !editing" class="progress">{{ progress.done }}/{{ progress.total }}</span>
+        <span v-else class="text" @click.stop="startEdit">{{ task.text || "(无标题)" }}</span>
+        <span v-if="progress && !editing" class="progress">
+          {{ progress.done }}/{{ progress.total }}
+        </span>
         <button
-          v-if="!editing && !adding"
+          v-if="!editing"
           type="button"
           class="decompose-btn"
-          :class="{ pinned: pinDecompose }"
-          title="AI 拆解（⌘/Ctrl+Shift+D）"
+          title="AI 拆解"
           aria-label="AI 拆解任务"
           @click.stop="onDecompose"
         >
@@ -236,15 +149,13 @@ function onTextClick() {
         <template v-if="taskOverdue"> · 过期 {{ taskOverdueDays }} 天</template>
       </span>
     </div>
-    <div v-if="!editing && task.tags.length" class="meta">
-      <span v-for="tag in task.tags" :key="tag" class="tag">#{{ tag }}</span>
-    </div>
     <ul v-if="task.children.length" class="children">
-      <TaskItem
+      <ScheduleNode
         v-for="(child, index) in task.children"
         :key="child.id || `${task.id}-${index}`"
         :task="child"
         :depth="depth + 1"
+        :today-iso="todayIso"
         @toggle="(id, completed) => emit('toggle', id, completed)"
         @remove="(id) => emit('remove', id)"
         @decompose="(id, text) => emit('decompose', id, text)"
@@ -252,30 +163,25 @@ function onTextClick() {
         @add-under="(parentId, text) => emit('add-under', parentId, text)"
       />
     </ul>
-    <div v-if="adding" class="add-row">
-      <input
-        ref="addInputRef"
-        v-model="addDraft"
-        class="add-input"
-        type="text"
-        aria-label="新增步骤"
-        placeholder="新增一步…"
-        @keydown="onAddKeydown"
-        @blur="commitAdd"
-      />
-    </div>
   </li>
 </template>
 
 <style scoped>
-.task-item {
+.node {
   list-style: none;
 }
 
-.task-item.nested {
+.node.nested {
   margin-left: 12px;
   padding-left: 10px;
   border-left: 1.5px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.path {
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 2px 4px 0 22px;
+  opacity: 0.85;
 }
 
 .row {
@@ -288,13 +194,11 @@ function onTextClick() {
 }
 
 .row:hover,
-.row:focus-visible,
-.task-item.editing .row,
-.task-item.adding .row {
+.row:focus-visible {
   background: color-mix(in srgb, var(--accent-soft) 55%, transparent);
 }
 
-.task-item.done .text {
+.node.done .text {
   color: var(--text-muted);
   text-decoration: line-through;
 }
@@ -309,19 +213,10 @@ function onTextClick() {
   padding: 0;
 }
 
-.check:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-
 .check.on {
   background: var(--accent);
   border-color: var(--accent);
   box-shadow: inset 0 0 0 2px var(--bg-elevated);
-}
-
-.check:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .content {
@@ -349,19 +244,13 @@ function onTextClick() {
   background: var(--bg-elevated);
   color: var(--text);
   font-size: 12.5px;
-  outline: none;
-}
-
-.edit-input:focus {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--blue-200));
-  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .progress {
   font-size: 10px;
   color: var(--accent);
-  white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .decompose-btn {
@@ -372,16 +261,11 @@ function onTextClick() {
   font-size: 11px;
   font-weight: 650;
   color: var(--text-muted);
-  opacity: 0;
-}
-
-.decompose-btn.pinned {
   opacity: 0.55;
 }
 
 .row:hover .decompose-btn,
-.row:focus-visible .decompose-btn,
-.task-item.editing .decompose-btn {
+.row:focus-visible .decompose-btn {
   opacity: 1;
 }
 
@@ -396,7 +280,7 @@ function onTextClick() {
   margin-left: -2px;
 }
 
-.task-item.overdue .text {
+.node.overdue .text {
   color: var(--danger, #c0392b);
 }
 
@@ -411,45 +295,10 @@ function onTextClick() {
   color: var(--danger, #c0392b);
 }
 
-.meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 0 6px 2px 27px;
-  font-size: 10px;
-  color: var(--text-muted);
-}
-
-.tag {
-  opacity: 0.9;
-}
-
 .children {
   list-style: none;
   display: flex;
   flex-direction: column;
   margin-top: 1px;
-}
-
-.add-row {
-  margin: 2px 0 4px 22px;
-}
-
-.add-input {
-  width: 100%;
-  padding: 4px 6px;
-  border-radius: 4px;
-  border: 1px dashed var(--border-strong);
-  background: transparent;
-  outline: none;
-  color: var(--text);
-  font-size: 12px;
-}
-
-.add-input:focus {
-  border-style: solid;
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--blue-200));
-  background: var(--bg-elevated);
-  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 </style>

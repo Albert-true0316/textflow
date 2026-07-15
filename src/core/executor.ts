@@ -92,14 +92,17 @@ function applyOne(
       const parent = tasks.get(op.id);
       if (!parent) return `找不到任务 ^${op.id}`;
       if (!op.subtasks.length) return "拆解子任务列表为空";
+      const parentDue = parseTaskMeta(taskItemText(parent.item)).due;
       const list = ensureChildList(parent.item);
       for (const s of op.subtasks) {
         const text = s.text.trim();
         if (!text) continue;
+        let due = s.due;
+        if (parentDue && due && due > parentDue) due = parentDue;
         const id = generateId(ids);
         list.children.push(
           createTaskItem(
-            { text, due: s.due, tags: s.tags ?? [], id },
+            { text, due, tags: s.tags ?? [], id },
             false,
           ),
         );
