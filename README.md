@@ -43,11 +43,11 @@ npm run build:app
 4. 或打 tag 自动发 Release：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
-产物为 NSIS 安装包，例如：`TextFlow_0.1.0_x64-setup.exe`  
+产物为 NSIS 安装包，例如：`TextFlow_0.2.0_x64-setup.exe`  
 （需 Windows 10+，首次运行会拉取 WebView2 运行时）
 
 若手里有 Windows 电脑，也可直接：
@@ -62,3 +62,4 @@ npm run build:win
 - Win / Mac 同一套代码（Tauri）；窗口标题栏已按平台分支
 - 多 Provider（DeepSeek / OpenAI / 通义 / Kimi / 智谱 / SiliconFlow / 自定义）
 - 本地 Markdown + 自然语言 + 预览确认 + 拆解
+- 列表 / 日程 / 分类三视图；贴边收成球体；过期高亮与 AI 排期增强
