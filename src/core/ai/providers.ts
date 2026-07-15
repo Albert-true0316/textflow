@@ -65,7 +65,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultBaseUrl: "https://api.example.com/v1/chat/completions",
     defaultModel: "gpt-4o-mini",
     editableUrl: true,
-    hint: "任意 OpenAI 兼容接口，填完整 chat/completions 地址",
+    hint: "任意 OpenAI 兼容接口；建议填完整 …/chat/completions 地址",
   },
 ];
 

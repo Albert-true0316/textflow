@@ -16,7 +16,6 @@ import { describeOp } from "../core/ai/tools";
 import type { Op } from "../core/ops";
 import {
   loadSettings,
-  normalizeChatCompletionsUrl,
   resolveEndpoint,
   saveSettings,
   type AppSettings,
@@ -110,8 +109,9 @@ export function useAi() {
   }
 
   function updateCustomBaseUrl(url: string) {
+    // 保存用户原样输入；仅在真正发请求时做「残缺 /v1」补全
     settings.value = saveSettings({
-      customBaseUrl: normalizeChatCompletionsUrl(url),
+      customBaseUrl: url.trim(),
     });
   }
 

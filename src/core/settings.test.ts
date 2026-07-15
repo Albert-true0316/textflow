@@ -20,10 +20,25 @@ describe("normalizeChatCompletionsUrl", () => {
     );
   });
 
-  it("补全无协议的地址", () => {
+  it("补全无协议且写到 /v1 的地址", () => {
     expect(normalizeChatCompletionsUrl("api.deepseek.com/v1")).toBe(
       "https://api.deepseek.com/v1/chat/completions",
     );
+  });
+
+  it("仅域名时补 /chat/completions", () => {
+    expect(normalizeChatCompletionsUrl("https://api.deepseek.com")).toBe(
+      "https://api.deepseek.com/chat/completions",
+    );
+  });
+
+  it("不改写非 completions 的自定义路径", () => {
+    expect(
+      normalizeChatCompletionsUrl("https://proxy.example.com/openai/v1/chat"),
+    ).toBe("https://proxy.example.com/openai/v1/chat");
+    expect(
+      normalizeChatCompletionsUrl("https://proxy.example.com/v1/messages"),
+    ).toBe("https://proxy.example.com/v1/messages");
   });
 });
 
