@@ -98,6 +98,26 @@ html[data-platform="windows"][data-theme="dark"] .glass-strong {
   background: color-mix(in srgb, var(--bg-elevated) 96%, var(--accent) 4%);
 }
 
+/* Windows 不透明窗：避免圆角外/球体透明区被 WebView2 画成白屏 */
+html[data-platform="windows"],
+html[data-platform="windows"] body,
+html[data-platform="windows"] #app {
+  background: var(--bg);
+}
+
+html[data-platform="windows"] .widget {
+  border-radius: 10px;
+}
+
+html[data-platform="windows"] .widget.orb {
+  background: var(--bg-elevated);
+  border-radius: 50%;
+}
+
+html[data-platform="windows"] .orb-face {
+  background: var(--bg-elevated);
+}
+
 :root {
   color: var(--text);
   font-family: var(--font);
@@ -112,6 +132,36 @@ html[data-platform="windows"][data-theme="dark"] .glass-strong {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+*:hover,
+*:focus-within {
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 35%, transparent) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+
+*:hover::-webkit-scrollbar-thumb,
+*:focus-within::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 32%, transparent);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-muted) 48%, transparent);
 }
 
 html,

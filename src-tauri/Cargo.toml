@@ -1,6 +1,6 @@
 [package]
 name = "textflow"
-version = "0.2.1"
+version = "1.0.0"
 description = "Local-first AI natural-language todo widget"
 authors = ["TextFlow"]
 edition = "2021"

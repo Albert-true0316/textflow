@@ -21,6 +21,11 @@ fn app_platform() -> String {
     }
 }
 
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -35,6 +40,7 @@ pub fn run() {
             keychain::delete_api_key,
             ai_proxy::ai_chat_completions,
             app_platform,
+            quit_app,
         ])
         .setup(|app| {
             let show_i = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;

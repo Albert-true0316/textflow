@@ -33,12 +33,21 @@ const taskOverdueDays = computed(() =>
   props.task.due ? overdueDays(props.task.due, today.value) : 0,
 );
 const editing = ref(false);
+const adding = ref(false);
 const draft = ref("");
+const addDraft = ref("");
 const inputRef = ref<HTMLInputElement | null>(null);
+const addInputRef = ref<HTMLInputElement | null>(null);
+const rowRef = ref<HTMLElement | null>(null);
 
 function onToggle() {
-  if (!props.task.id || editing.value) return;
+  if (!props.task.id || editing.value || adding.value) return;
   emit("toggle", props.task.id, !props.task.completed);
+}
+
+function onRemove() {
+  if (!props.task.id) return;
+  emit("remove", props.task.id);
 }
 
 function onDecompose() {
@@ -46,8 +55,13 @@ function onDecompose() {
   emit("decompose", props.task.id, props.task.text);
 }
 
+function isModKey(e: KeyboardEvent) {
+  return e.metaKey || e.ctrlKey;
+}
+
 async function startEdit() {
   if (!props.task.id) return;
+  adding.value = false;
   editing.value = true;
   draft.value = props.task.text;
   await nextTick();
@@ -68,21 +82,80 @@ function cancelEdit() {
   draft.value = props.task.text;
 }
 
+async function startAdd() {
+  if (!props.task.id || editing.value) return;
+  editing.value = false;
+  adding.value = true;
+  addDraft.value = "";
+  await nextTick();
+  addInputRef.value?.focus();
+}
+
+function cancelAdd() {
+  adding.value = false;
+  addDraft.value = "";
+}
+
+function commitAdd() {
+  if (!adding.value || !props.task.id) return;
+  const text = addDraft.value.trim();
+  adding.value = false;
+  addDraft.value = "";
+  if (!text) return;
+  emit("add-under", props.task.id, text);
+}
+
+async function commitEditThenAdd() {
+  if (!editing.value || !props.task.id) return;
+  const next = draft.value.trim();
+  editing.value = false;
+  if (next && next !== props.task.text) {
+    emit("edit", props.task.id, next);
+  }
+  await startAdd();
+}
+
 function onEditKeydown(e: KeyboardEvent) {
+  if (e.key === "Enter" && isModKey(e)) {
+    e.preventDefault();
+    commitEdit();
+    onToggle();
+    return;
+  }
   if (e.key === "Enter") {
     e.preventDefault();
     commitEdit();
     return;
   }
+  if (e.key === "Tab" && !e.shiftKey) {
+    e.preventDefault();
+    void commitEditThenAdd();
+    return;
+  }
   if (e.key === "Escape") {
     e.preventDefault();
     cancelEdit();
+    rowRef.value?.focus();
+  }
+}
+
+function onAddKeydown(e: KeyboardEvent) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    commitAdd();
+    rowRef.value?.focus();
+    return;
+  }
+  if (e.key === "Escape") {
+    e.preventDefault();
+    cancelAdd();
+    rowRef.value?.focus();
   }
 }
 
 function onRowKeydown(e: KeyboardEvent) {
-  if (editing.value) return;
-  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+  if (editing.value || adding.value) return;
+  if (e.key === "Enter" && isModKey(e)) {
     e.preventDefault();
     onToggle();
     return;
@@ -92,17 +165,28 @@ function onRowKeydown(e: KeyboardEvent) {
     void startEdit();
     return;
   }
-  if ((e.key === "d" || e.key === "D") && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+  if (e.key === "Tab" && !e.shiftKey) {
+    e.preventDefault();
+    void startAdd();
+    return;
+  }
+  if ((e.key === "d" || e.key === "D") && isModKey(e) && e.shiftKey) {
     e.preventDefault();
     onDecompose();
+    return;
+  }
+  if (e.key === "Backspace" || e.key === "Delete") {
+    e.preventDefault();
+    onRemove();
   }
 }
 </script>
 
 <template>
-  <li class="node" :class="{ done: task.completed, nested: depth > 0, overdue: taskOverdue }">
+  <li class="node" :class="{ done: task.completed, nested: depth > 0, overdue: taskOverdue, editing, adding }">
     <p v-if="task.parentPath && depth === 0" class="path">{{ task.parentPath }}</p>
     <div
+      ref="rowRef"
       class="row"
       :class="{ overdue: taskOverdue }"
       tabindex="0"
@@ -115,7 +199,7 @@ function onRowKeydown(e: KeyboardEvent) {
         :class="{ on: task.completed }"
         :aria-pressed="task.completed"
         :aria-label="task.completed ? '标为未完成' : '标为完成'"
-        :disabled="editing"
+        :disabled="editing || adding"
         @click="onToggle"
       />
       <div class="content">
@@ -134,7 +218,7 @@ function onRowKeydown(e: KeyboardEvent) {
           {{ progress.done }}/{{ progress.total }}
         </span>
         <button
-          v-if="!editing"
+          v-if="!editing && !adding"
           type="button"
           class="decompose-btn"
           title="AI 拆解"
@@ -163,6 +247,18 @@ function onRowKeydown(e: KeyboardEvent) {
         @add-under="(parentId, text) => emit('add-under', parentId, text)"
       />
     </ul>
+    <div v-if="adding" class="add-row">
+      <input
+        ref="addInputRef"
+        v-model="addDraft"
+        class="add-input"
+        type="text"
+        aria-label="新增步骤"
+        placeholder="新增一步…"
+        @keydown="onAddKeydown"
+        @blur="commitAdd"
+      />
+    </div>
   </li>
 </template>
 
@@ -194,7 +290,9 @@ function onRowKeydown(e: KeyboardEvent) {
 }
 
 .row:hover,
-.row:focus-visible {
+.row:focus-visible,
+.node.editing .row,
+.node.adding .row {
   background: color-mix(in srgb, var(--accent-soft) 55%, transparent);
 }
 
@@ -300,5 +398,20 @@ function onRowKeydown(e: KeyboardEvent) {
   display: flex;
   flex-direction: column;
   margin-top: 1px;
+}
+
+.add-row {
+  margin-left: 12px;
+  padding: 2px 6px 6px 22px;
+}
+
+.add-input {
+  width: 100%;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 12.5px;
 }
 </style>

@@ -2,9 +2,15 @@ import { describe, expect, it } from "vitest";
 import { normalizeChatCompletionsUrl, resolveEndpoint } from "./settings";
 
 describe("normalizeChatCompletionsUrl", () => {
-  it("补全只写到 /v1 的地址", () => {
+  it("不追加 /chat/completions，只 trim 并去掉末尾斜杠", () => {
     expect(normalizeChatCompletionsUrl("https://api.openai.com/v1")).toBe(
-      "https://api.openai.com/v1/chat/completions",
+      "https://api.openai.com/v1",
+    );
+    expect(normalizeChatCompletionsUrl("https://api.openai.com/v1/")).toBe(
+      "https://api.openai.com/v1",
+    );
+    expect(normalizeChatCompletionsUrl("https://api.deepseek.com")).toBe(
+      "https://api.deepseek.com",
     );
   });
 
@@ -14,25 +20,13 @@ describe("normalizeChatCompletionsUrl", () => {
     ).toBe("https://api.deepseek.com/chat/completions");
   });
 
-  it("去掉末尾斜杠再补全", () => {
-    expect(normalizeChatCompletionsUrl("https://api.openai.com/v1/")).toBe(
-      "https://api.openai.com/v1/chat/completions",
-    );
-  });
-
-  it("补全无协议且写到 /v1 的地址", () => {
+  it("无协议时只补 https://，不改路径", () => {
     expect(normalizeChatCompletionsUrl("api.deepseek.com/v1")).toBe(
-      "https://api.deepseek.com/v1/chat/completions",
+      "https://api.deepseek.com/v1",
     );
   });
 
-  it("仅域名时补 /chat/completions", () => {
-    expect(normalizeChatCompletionsUrl("https://api.deepseek.com")).toBe(
-      "https://api.deepseek.com/chat/completions",
-    );
-  });
-
-  it("不改写非 completions 的自定义路径", () => {
+  it("自定义路径原样保留", () => {
     expect(
       normalizeChatCompletionsUrl("https://proxy.example.com/openai/v1/chat"),
     ).toBe("https://proxy.example.com/openai/v1/chat");

@@ -6,6 +6,7 @@ import {
   buildTagSections,
   buildWeekDayChips,
   buildWeekScheduleSections,
+  filterSectionsByStatus,
   isOverdue,
   overdueDays,
   rebuildTreesInBucket,
@@ -311,6 +312,50 @@ describe("buildTagChips", () => {
     expect(chips.map((c) => c.tag)).toEqual(["生活", "工作"]);
     expect(chips[0].count).toBe(2);
     expect(chips[1].count).toBe(1);
+  });
+});
+
+describe("filterSectionsByStatus", () => {
+  it("可筛出已完成 / 已过期 / 未完成", () => {
+    const tasks: Task[] = [
+      {
+        id: "done",
+        text: "已做",
+        completed: true,
+        due: "2026-07-10",
+        tags: ["生活"],
+        children: [],
+      },
+      {
+        id: "late",
+        text: "过期",
+        completed: false,
+        due: "2026-07-10",
+        tags: ["工作"],
+        children: [],
+      },
+      {
+        id: "open",
+        text: "进行中",
+        completed: false,
+        due: "2026-07-20",
+        tags: ["工作"],
+        children: [],
+      },
+    ];
+    const sections = buildTagSections(tasks);
+    const done = filterSectionsByStatus(sections, "done", today);
+    expect(done).toHaveLength(1);
+    expect(done[0].tasks[0].id).toBe("done");
+
+    const overdue = filterSectionsByStatus(sections, "overdue", today);
+    expect(overdue).toHaveLength(1);
+    expect(overdue[0].tasks[0].id).toBe("late");
+
+    const open = filterSectionsByStatus(sections, "open", today);
+    expect(open).toHaveLength(1);
+    expect(open[0].id).toBe("tag-工作");
+    expect(open[0].tasks.map((t) => t.id)).toEqual(["open"]);
   });
 });
 

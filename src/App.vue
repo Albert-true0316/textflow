@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { invoke } from "@tauri-apps/api/core";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import ScheduleView from "./components/ScheduleView.vue";
 import TagsView from "./components/TagsView.vue";
-import TaskList from "./components/TaskList.vue";
 import { useAi } from "./composables/useAi";
 import { usePlatform } from "./composables/usePlatform";
 import { useTheme } from "./composables/useTheme";
@@ -16,6 +16,7 @@ import {
   captureWindowGeometry,
   detectEdgeSide,
   expandBesideOrb,
+  nudgeWebviewRepaint,
   ORB_SIZE,
   type OrbSide,
   type WindowGeometry,
@@ -42,16 +43,17 @@ let edgeMoveTimer: ReturnType<typeof setTimeout> | null = null;
 let unlistenMoved: (() => void) | null = null;
 let applyingOrb = false;
 
-type ViewMode = "list" | "schedule" | "tags";
+type ViewMode = "schedule" | "tags";
 const VIEW_KEY = "textflow.viewMode";
 function loadViewMode(): ViewMode {
   try {
     const v = localStorage.getItem(VIEW_KEY);
-    if (v === "schedule" || v === "tags") return v;
+    if (v === "tags") return "tags";
+    // 旧版「列表」与日程汇总重叠，统一落到日程
   } catch {
     /* ignore */
   }
-  return "list";
+  return "schedule";
 }
 const viewMode = ref<ViewMode>(loadViewMode());
 watch(viewMode, (mode) => {
@@ -62,7 +64,7 @@ watch(viewMode, (mode) => {
   }
 });
 
-const { isMac } = usePlatform();
+const { isMac, isWindows } = usePlatform();
 const { themeMode, updateThemeMode } = useTheme();
 
 const {
@@ -324,12 +326,14 @@ async function toggleMiniPlayer() {
     await nextTick();
     await win.setMinSize(new LogicalSize(280, COLLAPSED_HEIGHT));
     await win.setSize(new LogicalSize(logicalWidth, COLLAPSED_HEIGHT));
+    if (isWindows.value) await nudgeWebviewRepaint();
   } else {
     collapsed.value = false;
     await nextTick();
     await win.setMinSize(new LogicalSize(280, 120));
     const h = zoomed.value ? ZOOM_HEIGHT : expandedHeight.value || NORMAL_HEIGHT;
     await win.setSize(new LogicalSize(logicalWidth, h));
+    if (isWindows.value) await nudgeWebviewRepaint();
   }
 }
 
@@ -354,6 +358,7 @@ async function toggleZoom() {
   const h = zoomed.value ? ZOOM_HEIGHT : NORMAL_HEIGHT;
   expandedHeight.value = h;
   await win.setSize(new LogicalSize(logicalWidth, h));
+  if (isWindows.value) await nudgeWebviewRepaint();
 }
 
 async function togglePin() {
@@ -365,12 +370,21 @@ async function togglePin() {
 async function closeToTray() {
   await getCurrentWindow().hide();
 }
+
+async function quitApp() {
+  menuOpen.value = false;
+  try {
+    await invoke("quit_app");
+  } catch {
+    await getCurrentWindow().close();
+  }
+}
 </script>
 
 <template>
   <div
     class="widget"
-    :class="{ collapsed, orb, 'is-windows': !isMac }"
+    :class="{ collapsed, orb, 'is-windows': isWindows }"
     :style="orb ? { width: `${ORB_SIZE}px`, height: `${ORB_SIZE}px` } : undefined"
   >
     <!-- 贴边球体：拖动移动，轻点展开 -->
@@ -389,15 +403,15 @@ async function closeToTray() {
     <template v-else>
     <header
       class="titlebar glass"
-      :class="{ 'titlebar-mac': isMac, 'titlebar-win': !isMac }"
+      :class="{ 'titlebar-mac': isMac, 'titlebar-win': isWindows }"
       data-tauri-drag-region
     >
       <div v-if="isMac" class="traffic-lights" @pointerdown.stop>
         <button
           type="button"
           class="tl tl-close"
-          title="关闭（保留到菜单栏托盘）"
-          aria-label="关闭"
+          title="隐藏到托盘（不退出；退出请用 ☰ 或菜单栏托盘）"
+          aria-label="隐藏到托盘"
           @click="closeToTray"
         >
           <span class="tl-glyph">×</span>
@@ -461,7 +475,7 @@ async function closeToTray() {
         >
           ☰
         </button>
-        <div v-if="!isMac" class="win-controls">
+        <div v-if="isWindows" class="win-controls">
           <button
             type="button"
             class="win-btn"
@@ -483,8 +497,8 @@ async function closeToTray() {
           <button
             type="button"
             class="win-btn win-close"
-            title="关闭到托盘"
-            aria-label="关闭到托盘"
+            title="隐藏到托盘（不退出；退出请用 ☰ 或托盘菜单）"
+            aria-label="隐藏到托盘"
             @click="closeToTray"
           >
             <span aria-hidden="true">×</span>
@@ -526,6 +540,9 @@ async function closeToTray() {
         @click="menuOpen = false; clearBinding()"
       >
         解除绑定
+      </button>
+      <button type="button" class="menu-item muted" @click="quitApp">
+        退出 TextFlow
       </button>
     </div>
 
@@ -592,16 +609,6 @@ async function closeToTray() {
           <button
             type="button"
             class="view-tab"
-            :class="{ active: viewMode === 'list' }"
-            role="tab"
-            :aria-selected="viewMode === 'list'"
-            @click="viewMode = 'list'"
-          >
-            列表
-          </button>
-          <button
-            type="button"
-            class="view-tab"
             :class="{ active: viewMode === 'schedule' }"
             role="tab"
             :aria-selected="viewMode === 'schedule'"
@@ -632,18 +639,8 @@ async function closeToTray() {
 
       <p v-if="displayError" class="error">{{ displayError }}</p>
 
-      <TaskList
-        v-if="filePath && viewMode === 'list'"
-        :tasks="tasks"
-        @toggle="toggleTask"
-        @remove="deleteTask"
-        @decompose="decomposeTask"
-        @edit="editTask"
-        @add-under="addUnderTask"
-      />
-
       <ScheduleView
-        v-else-if="filePath && viewMode === 'schedule'"
+        v-if="filePath && viewMode === 'schedule'"
         :tasks="tasks"
         @toggle="toggleTask"
         @remove="deleteTask"
@@ -675,11 +672,9 @@ async function closeToTray() {
             !filePath
               ? '先打开 .md 文件'
               : hasKey
-                ? viewMode === 'schedule'
-                  ? '说：明天交报告 / 买菜改到周五…'
-                  : viewMode === 'tags'
-                    ? '说：把交周报标成 #工作…'
-                    : '随便说：买菜搞定了 / 帮我拆答辩…'
+                ? viewMode === 'tags'
+                  ? '说：把交周报标成 #工作…'
+                  : '说：明天交报告 / 买菜改到周五…'
                 : '输入任务，Enter 添加顶层'
           "
           :disabled="!filePath || writing || aiBusy"
@@ -1053,7 +1048,7 @@ async function closeToTray() {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 4px 12px 12px;
+  padding: 4px 0 12px;
   min-height: 0;
   flex: 1;
 }
@@ -1064,6 +1059,7 @@ async function closeToTray() {
   gap: 8px;
   min-width: 0;
   flex-wrap: wrap;
+  padding: 0 12px;
 }
 
 .view-tabs {
@@ -1141,11 +1137,13 @@ async function closeToTray() {
 .hint {
   color: var(--text-muted);
   font-size: 12px;
+  padding: 0 12px;
 }
 
 .error {
   color: var(--danger);
   font-size: 12px;
+  padding: 0 12px;
 }
 
 .empty {
@@ -1156,6 +1154,7 @@ async function closeToTray() {
   gap: 8px;
   color: var(--text-muted);
   font-size: 13px;
+  padding: 0 12px;
 }
 
 .empty code {
@@ -1168,6 +1167,7 @@ async function closeToTray() {
   display: flex;
   gap: 8px;
   align-items: center;
+  padding: 0 12px;
 }
 
 .composer input {

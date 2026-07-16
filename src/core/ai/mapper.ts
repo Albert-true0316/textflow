@@ -33,6 +33,17 @@ function todayISO(d = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
+/** DeepSeek V4 / reasoner 等 thinking 模型不接受强制指定某个 tool */
+function prefersAutoToolChoice(model: string): boolean {
+  const m = model.toLowerCase();
+  return (
+    /v4/.test(m) ||
+    m.includes("reasoner") ||
+    m.includes("thinking") ||
+    /(^|[/_\-])r1($|[/_\-])/.test(m)
+  );
+}
+
 function assertOnline() {
   // Tauri WebView 里 navigator.onLine 不可靠，真实连通性交给 Rust 请求判断
 }
@@ -89,10 +100,13 @@ export async function mapNaturalLanguage(options: {
         model,
         messages,
         tools: AI_TOOLS,
-        tool_choice: {
-          type: "function",
-          function: { name: "apply_todo_ops" },
-        },
+        // V4 thinking 等只接受 auto/none；其它模型仍强制走 apply_todo_ops
+        tool_choice: prefersAutoToolChoice(model)
+          ? "auto"
+          : {
+              type: "function",
+              function: { name: "apply_todo_ops" },
+            },
         // 不传 temperature：部分 Claude 等模型会因该字段返回 400
       },
     });

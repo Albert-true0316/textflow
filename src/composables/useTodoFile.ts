@@ -3,7 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
 import { applyOps, ensureTaskIds } from "../core/executor";
 import { atomicWriteTextFile } from "../core/fsWrite";
-import { ensureOnboarding } from "../core/onboarding";
+import { dedupeOnboarding, ensureOnboarding } from "../core/onboarding";
 import type { Op } from "../core/ops";
 import { parseMarkdown } from "../core/parser";
 import { snapshots } from "../core/snapshot";
@@ -56,7 +56,7 @@ export function useTodoFile() {
 
   async function loadFromPath(path: string) {
     const raw = await readTextFile(path);
-    let text = raw;
+    let text = dedupeOnboarding(raw);
 
     const withOnboarding = ensureOnboarding(text);
     if (withOnboarding) text = withOnboarding;

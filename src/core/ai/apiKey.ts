@@ -65,6 +65,18 @@ export function formatAiHttpError(
     );
   }
 
+  if (
+    status === 400 &&
+    /thinking mode does not support|does not support this tool_choice/i.test(
+      err?.message ?? body,
+    )
+  ) {
+    return (
+      `当前模型处于 Thinking / 推理模式，不支持强制工具调用${modelLabel}。` +
+      `请换用普通对话模型（如 deepseek-chat、gpt-4o-mini），或确认已更新到支持 V4 的 TextFlow 版本。`
+    );
+  }
+
   const snippet = body.trim().slice(0, 180);
   return `AI 请求失败（${status}）${snippet ? `: ${snippet}` : ""}`;
 }

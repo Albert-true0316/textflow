@@ -113,7 +113,7 @@ onMounted(() => {
         :aria-selected="layout === 'summary'"
         @click="setLayout('summary')"
       >
-        汇总
+        按日
       </button>
       <button
         type="button"
@@ -208,7 +208,7 @@ onMounted(() => {
 .layout-tabs {
   display: flex;
   gap: 4px;
-  padding: 0 2px;
+  padding: 0 12px;
   flex-shrink: 0;
 }
 
@@ -234,7 +234,7 @@ onMounted(() => {
 .week-strip {
   display: flex;
   gap: 3px;
-  padding: 0 1px;
+  padding: 0 12px;
   flex-shrink: 0;
   overflow-x: auto;
 }
@@ -314,13 +314,14 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding-right: 2px;
+  padding-left: 12px;
 }
 
 .schedule-section {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding-right: 12px;
 }
 
 .section-title {
@@ -359,5 +360,6 @@ onMounted(() => {
   display: flex;
   align-items: center;
   line-height: 1.5;
+  padding: 0 12px;
 }
 </style>

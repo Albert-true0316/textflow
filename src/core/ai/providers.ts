@@ -26,7 +26,7 @@ export const PROVIDERS: ProviderDef[] = [
     name: "DeepSeek",
     defaultBaseUrl: "https://api.deepseek.com/chat/completions",
     defaultModel: "deepseek-chat",
-    hint: "国内可用，默认推荐",
+    hint: "国内可用。若用 deepseek-v4-flash/pro，App 会自动改用兼容的工具调用方式",
   },
   {
     id: "openai",
@@ -65,7 +65,7 @@ export const PROVIDERS: ProviderDef[] = [
     defaultBaseUrl: "https://api.example.com/v1/chat/completions",
     defaultModel: "gpt-4o-mini",
     editableUrl: true,
-    hint: "任意 OpenAI 兼容接口；建议填完整 …/chat/completions 地址",
+    hint: "任意 OpenAI 兼容接口；请按文档填完整 URL，不会自动改路径",
   },
 ];
 

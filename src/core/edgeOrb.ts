@@ -78,6 +78,7 @@ export async function applyOrbWindow(side: OrbSide): Promise<void> {
   const y = Math.min(Math.max(curY, monY + 8), monY + monH - ORB_SIZE - 8);
 
   await win.setPosition(new LogicalPosition(x, y));
+  await nudgeWebviewRepaint();
 }
 
 export async function restoreWindowGeometry(geo: WindowGeometry): Promise<void> {
@@ -85,6 +86,7 @@ export async function restoreWindowGeometry(geo: WindowGeometry): Promise<void> 
   await win.setMinSize(new LogicalSize(280, 120));
   await win.setSize(new LogicalSize(geo.width, geo.height));
   await win.setPosition(new LogicalPosition(geo.x, geo.y));
+  await nudgeWebviewRepaint();
 }
 
 /**
@@ -122,4 +124,26 @@ export async function expandBesideOrb(
   await win.setMinSize(new LogicalSize(280, 120));
   await win.setSize(new LogicalSize(width, height));
   await win.setPosition(new LogicalPosition(x, y));
+  await nudgeWebviewRepaint();
+}
+
+/**
+ * WebView2 在 Windows 上改尺寸后偶发不重绘（白屏）。
+ * 用 1px 回弹逼一次重绘；其它平台直接跳过。
+ */
+export async function nudgeWebviewRepaint(): Promise<void> {
+  if (typeof navigator !== "undefined" && !/Windows/i.test(navigator.userAgent)) {
+    return;
+  }
+  try {
+    const win = getCurrentWindow();
+    const size = await win.outerSize();
+    const w = Math.max(1, size.width);
+    const h = Math.max(1, size.height);
+    await win.setSize(new PhysicalSize(w, h === 1 ? 2 : h - 1));
+    await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    await win.setSize(new PhysicalSize(w, h));
+  } catch {
+    /* ignore */
+  }
 }

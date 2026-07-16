@@ -111,7 +111,7 @@ const keyModel = computed({
         placeholder="https://.../v1/chat/completions"
         @change="emit('update:customBaseUrl', ($event.target as HTMLInputElement).value)"
       />
-      <p class="hint">请填 OpenAI 兼容的完整地址。只写到域名或 /v1 时会自动补 /chat/completions；其它路径不会改写。</p>
+      <p class="hint">请填完整请求地址（不会自动追加路径）。内置 Provider 默认已含 /chat/completions；自定义中转站请按对方文档原样粘贴。</p>
     </section>
 
     <section class="block">

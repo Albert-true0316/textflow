@@ -281,6 +281,56 @@ export type TagChip = {
   count: number;
 };
 
+/** 分类视图状态筛选 */
+export type TaskStatusFilter = "all" | "open" | "overdue" | "done";
+
+export function matchesTaskStatus(
+  task: { completed: boolean; due?: string },
+  filter: TaskStatusFilter,
+  today = new Date(),
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "done") return task.completed;
+  if (filter === "overdue") {
+    return !task.completed && isOverdue(task.due, today);
+  }
+  // open：未完成且未过期（含无日期）
+  return !task.completed && !isOverdue(task.due, today);
+}
+
+/** 按状态过滤任务树；父不匹配时把匹配的子任务提升上来 */
+export function filterScheduleForestByStatus(
+  tasks: ScheduleTask[],
+  filter: TaskStatusFilter,
+  today = new Date(),
+): ScheduleTask[] {
+  if (filter === "all") return tasks;
+  const out: ScheduleTask[] = [];
+  for (const t of tasks) {
+    const children = filterScheduleForestByStatus(t.children, filter, today);
+    if (matchesTaskStatus(t, filter, today)) {
+      out.push({ ...t, children });
+    } else {
+      out.push(...children);
+    }
+  }
+  return out;
+}
+
+export function filterSectionsByStatus(
+  sections: ScheduleSection[],
+  filter: TaskStatusFilter,
+  today = new Date(),
+): ScheduleSection[] {
+  if (filter === "all") return sections;
+  return sections
+    .map((sec) => ({
+      ...sec,
+      tasks: filterScheduleForestByStatus(sec.tasks, filter, today),
+    }))
+    .filter((sec) => sec.tasks.length > 0);
+}
+
 /** 标签条：按出现次数降序，同频按中文序 */
 export function buildTagChips(tasks: Task[]): TagChip[] {
   const flat = walkFlat(tasks);

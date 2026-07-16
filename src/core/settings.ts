@@ -28,10 +28,8 @@ function clampDecompose(n: number): number {
 }
 
 /**
- * 补齐常见「没写完」的 OpenAI 兼容地址。
- * - 已以 /chat/completions 结尾：原样保留
- * - 以 /v1 结尾（或只有域名）：补 /chat/completions
- * - 其它路径（含 /v1/messages、自定义网关等）：不强行加后缀
+ * 仅做轻量整理：去首尾空白、去掉末尾多余斜杠；缺协议时补 https://。
+ * 绝不改写路径（不加 /chat/completions）。
  */
 export function normalizeChatCompletionsUrl(url: string): string {
   let trimmed = url.trim().replace(/\/+$/, "");
@@ -39,22 +37,6 @@ export function normalizeChatCompletionsUrl(url: string): string {
   if (!/^https?:\/\//i.test(trimmed)) {
     trimmed = `https://${trimmed}`;
   }
-  if (/\/chat\/completions$/i.test(trimmed)) {
-    return trimmed;
-  }
-
-  try {
-    const parsed = new URL(trimmed);
-    const path = parsed.pathname.replace(/\/+$/, "") || "";
-    if (!path || path === "/" || /\/v1$/i.test(path)) {
-      const base = !path || path === "/" ? "" : path;
-      parsed.pathname = `${base}/chat/completions`;
-      return parsed.toString().replace(/\/+$/, "");
-    }
-  } catch {
-    /* 非法 URL 时退回原文（仍去掉末尾斜杠） */
-  }
-
   return trimmed;
 }
 
