@@ -73,7 +73,20 @@ export function formatAiHttpError(
   ) {
     return (
       `当前模型处于 Thinking / 推理模式，不支持强制工具调用${modelLabel}。` +
-      `请换用普通对话模型（如 deepseek-chat、gpt-4o-mini），或确认已更新到支持 V4 的 TextFlow 版本。`
+      `请升级到最新版 TextFlow（已自动关闭 Thinking），或改用 deepseek-v4-flash。`
+    );
+  }
+
+  if (
+    status === 400 &&
+    /model.?not.?found|invalid.?model|does not exist|unknown model/i.test(
+      err?.message ?? body,
+    )
+  ) {
+    return (
+      `模型名无效${modelLabel}。` +
+      `DeepSeek 官方 ID 是 deepseek-v4-flash / deepseek-v4-pro。` +
+      (err?.message ? ` 服务端：${err.message.slice(0, 140)}` : "")
     );
   }
 

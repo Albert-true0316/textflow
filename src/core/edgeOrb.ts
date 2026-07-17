@@ -1,4 +1,9 @@
-import { LogicalPosition, LogicalSize, PhysicalSize, type PhysicalPosition } from "@tauri-apps/api/dpi";
+import {
+  LogicalPosition,
+  LogicalSize,
+  PhysicalSize,
+  type PhysicalPosition,
+} from "@tauri-apps/api/dpi";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 
 /** 球体逻辑边长（偶数，便于高分屏对齐） */
@@ -17,6 +22,15 @@ export type WindowGeometry = {
 
 function physicalToLogical(n: number, scale: number): number {
   return n / scale;
+}
+
+function isWindowsUa(): boolean {
+  return typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
+}
+
+/** 排除误存的球体尺寸 */
+export function isExpandedGeometry(geo: WindowGeometry): boolean {
+  return geo.width > ORB_SIZE + 20 && geo.height > ORB_SIZE + 20;
 }
 
 /**
@@ -56,7 +70,7 @@ export async function captureWindowGeometry(): Promise<WindowGeometry> {
   };
 }
 
-/** 缩成贴边球体并贴到左/右（物理像素强制正方形，避免椭圆） */
+/** 缩成贴边球体并贴到左/右（与 1.0.0 一致；Win 额外锁 maxSize） */
 export async function applyOrbWindow(side: OrbSide): Promise<void> {
   const win = getCurrentWindow();
   const scale = await win.scaleFactor();
@@ -66,6 +80,11 @@ export async function applyOrbWindow(side: OrbSide): Promise<void> {
 
   const physical = Math.round(ORB_SIZE * scale);
   await win.setMinSize(new LogicalSize(ORB_SIZE, ORB_SIZE));
+
+  if (isWindowsUa()) {
+    await win.setMaxSize(new LogicalSize(ORB_SIZE, ORB_SIZE));
+  }
+
   await win.setSize(new PhysicalSize(physical, physical));
 
   const monX = physicalToLogical(monitor.position.x, scale);
@@ -78,11 +97,17 @@ export async function applyOrbWindow(side: OrbSide): Promise<void> {
   const y = Math.min(Math.max(curY, monY + 8), monY + monH - ORB_SIZE - 8);
 
   await win.setPosition(new LogicalPosition(x, y));
+
+  if (isWindowsUa()) {
+    await win.setSize(new PhysicalSize(physical, physical));
+  }
+
   await nudgeWebviewRepaint();
 }
 
 export async function restoreWindowGeometry(geo: WindowGeometry): Promise<void> {
   const win = getCurrentWindow();
+  await win.setMaxSize(null);
   await win.setMinSize(new LogicalSize(280, 120));
   await win.setSize(new LogicalSize(geo.width, geo.height));
   await win.setPosition(new LogicalPosition(geo.x, geo.y));
@@ -91,7 +116,7 @@ export async function restoreWindowGeometry(geo: WindowGeometry): Promise<void> 
 
 /**
  * 从贴边球体展开：停在球体内侧，不挡当前贴边处桌面内容。
- * 保留展开后的宽高，竖直方向以球体为中心并钳入屏幕。
+ * 展开用 LogicalSize（1.0.0 已验证）；缩球才用 PhysicalSize。
  */
 export async function expandBesideOrb(
   size: { width: number; height: number },
@@ -114,13 +139,15 @@ export async function expandBesideOrb(
   const orbY = physicalToLogical(pos.y, scale);
 
   const gap = 12;
-  let x =
-    side === "left" ? orbX + ORB_SIZE + gap : orbX - width - gap;
+  let x = side === "left" ? orbX + ORB_SIZE + gap : orbX - width - gap;
   x = Math.min(Math.max(x, monX + 8), monX + monW - width - 8);
 
   let y = orbY + ORB_SIZE / 2 - height / 2;
   y = Math.min(Math.max(y, monY + 8), monY + monH - height - 8);
 
+  if (isWindowsUa()) {
+    await win.setMaxSize(null);
+  }
   await win.setMinSize(new LogicalSize(280, 120));
   await win.setSize(new LogicalSize(width, height));
   await win.setPosition(new LogicalPosition(x, y));
@@ -129,15 +156,17 @@ export async function expandBesideOrb(
 
 /**
  * WebView2 在 Windows 上改尺寸后偶发不重绘（白屏）。
- * 用 1px 回弹逼一次重绘；其它平台直接跳过。
  */
 export async function nudgeWebviewRepaint(): Promise<void> {
-  if (typeof navigator !== "undefined" && !/Windows/i.test(navigator.userAgent)) {
-    return;
-  }
+  if (!isWindowsUa()) return;
   try {
     const win = getCurrentWindow();
     const size = await win.outerSize();
+    const scale = await win.scaleFactor();
+    const logicalW = size.width / scale;
+    const logicalH = size.height / scale;
+    if (logicalW <= ORB_SIZE + 2 && logicalH <= ORB_SIZE + 2) return;
+
     const w = Math.max(1, size.width);
     const h = Math.max(1, size.height);
     await win.setSize(new PhysicalSize(w, h === 1 ? 2 : h - 1));

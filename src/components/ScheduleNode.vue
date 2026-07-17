@@ -228,8 +228,9 @@ function onRowKeydown(e: KeyboardEvent) {
           拆
         </button>
       </div>
-      <span v-if="task.due && !editing" class="due" :class="{ overdue: taskOverdue }">
-        {{ task.due }}
+      <span v-if="(task.due || task.time) && !editing" class="due" :class="{ overdue: taskOverdue }">
+        <template v-if="task.due">{{ task.due }}</template>
+        <template v-if="task.time">{{ task.due ? " " : "" }}{{ task.time }}</template>
         <template v-if="taskOverdue"> · 过期 {{ taskOverdueDays }} 天</template>
       </span>
     </div>

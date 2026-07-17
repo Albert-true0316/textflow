@@ -22,7 +22,6 @@
   --due: #3b82c4;
   --danger: #dc4c4c;
   --shadow: 0 14px 32px color-mix(in srgb, var(--blue-deep) 14%, transparent);
-  --shadow-collapsed: 0 3px 10px color-mix(in srgb, var(--blue-deep) 10%, transparent);
 
   /* 玻璃材质 */
   --glass-bg: color-mix(in srgb, var(--white) 72%, var(--blue-100));
@@ -69,7 +68,6 @@
   --due: #7eb8e8;
   --danger: #f07070;
   --shadow: 0 14px 32px rgba(0, 0, 0, 0.4);
-  --shadow-collapsed: 0 3px 10px rgba(0, 0, 0, 0.35);
 
   --glass-bg: color-mix(in srgb, #152238 68%, transparent);
   --glass-bg-strong: color-mix(in srgb, #1a2d45 84%, transparent);
@@ -109,13 +107,23 @@ html[data-platform="windows"] .widget {
   border-radius: 10px;
 }
 
+/*
+ * Windows 球体：窗口不透明，图标透明角若用浅色 elevated 会整块发白。
+ * 用品牌深蓝铺满 + 圆角方块，避免「白屏」观感。
+ */
 html[data-platform="windows"] .widget.orb {
-  background: var(--bg-elevated);
-  border-radius: 50%;
+  background: #153e75;
+  border-radius: 14px;
 }
 
 html[data-platform="windows"] .orb-face {
-  background: var(--bg-elevated);
+  background: #153e75;
+  border-radius: 14px;
+  box-shadow: none;
+}
+
+html[data-platform="windows"] .orb-icon {
+  border-radius: 14px;
 }
 
 :root {

@@ -16,27 +16,27 @@ import {
   captureWindowGeometry,
   detectEdgeSide,
   expandBesideOrb,
+  isExpandedGeometry,
   nudgeWebviewRepaint,
-  ORB_SIZE,
   type OrbSide,
   type WindowGeometry,
 } from "./core/edgeOrb";
 import type { ProviderId } from "./core/ai/providers";
 import type { ThemeMode } from "./theme/theme";
 
-const collapsed = ref(false);
 const orb = ref(false);
 const orbSide = ref<OrbSide>("right");
 const alwaysOnTop = ref(true);
 const zoomed = ref(false);
 const expandedHeight = ref(480);
-const COLLAPSED_HEIGHT = 56;
 const NORMAL_HEIGHT = 480;
 const ZOOM_HEIGHT = 640;
 const menuOpen = ref(false);
 const menuPopoverRef = ref<HTMLElement | null>(null);
 const menuButtonRef = ref<HTMLButtonElement | null>(null);
 const savedBeforeOrb = ref<WindowGeometry | null>(null);
+/** 缩球/展开改尺寸时先隐藏，避免大窗套圆形闪一下 */
+const orbBusy = ref(false);
 /** 展开后短时抑制再次贴边成球，避免弹回去 */
 let orbCooldownUntil = 0;
 let edgeMoveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -152,29 +152,33 @@ onUnmounted(() => {
   unlistenMoved?.();
 });
 
+async function waitPaint() {
+  await nextTick();
+  await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+}
+
 async function enterOrb(side: OrbSide) {
   if (orb.value || applyingOrb) return;
   if (Date.now() < orbCooldownUntil) return;
   applyingOrb = true;
+  orbBusy.value = true;
   try {
     if (!savedBeforeOrb.value) {
       const geo = await captureWindowGeometry();
-      if (collapsed.value) {
-        geo.height = zoomed.value
-          ? ZOOM_HEIGHT
-          : expandedHeight.value || NORMAL_HEIGHT;
-        geo.width = Math.max(geo.width, 340);
+      if (isExpandedGeometry(geo)) {
+        savedBeforeOrb.value = geo;
       }
-      savedBeforeOrb.value = geo;
     }
     menuOpen.value = false;
     settingsOpen.value = false;
-    collapsed.value = true;
     orbSide.value = side;
-    orb.value = true;
-    await nextTick();
+    await waitPaint();
+    // 先缩窗（内容已隐藏），再切球 UI，避免大窗套圆形闪一下
     await applyOrbWindow(side);
+    orb.value = true;
+    await waitPaint();
   } finally {
+    orbBusy.value = false;
     applyingOrb = false;
   }
 }
@@ -182,34 +186,54 @@ async function enterOrb(side: OrbSide) {
 async function expandFromOrb() {
   if (!orb.value) return;
   applyingOrb = true;
+  orbBusy.value = true;
   try {
     const geo = savedBeforeOrb.value;
     const side = orbSide.value;
-    const width = geo?.width ?? 340;
-    const height = zoomed.value
-      ? ZOOM_HEIGHT
-      : geo?.height || expandedHeight.value || NORMAL_HEIGHT;
-    orb.value = false;
-    collapsed.value = false;
+    const width =
+      geo && isExpandedGeometry(geo) ? geo.width : 340;
+    const height =
+      geo && isExpandedGeometry(geo)
+        ? zoomed.value
+          ? ZOOM_HEIGHT
+          : geo.height
+        : zoomed.value
+          ? ZOOM_HEIGHT
+          : expandedHeight.value || NORMAL_HEIGHT;
     savedBeforeOrb.value = null;
-    await nextTick();
+    await waitPaint();
+    // 先放大（球 UI 已隐藏），再切完整界面，避免放大过程中出现巨球
     await expandBesideOrb({ width, height }, side);
+    orb.value = false;
+    await waitPaint();
     orbCooldownUntil = Date.now() + 1200;
   } finally {
+    orbBusy.value = false;
     applyingOrb = false;
   }
 }
 
-/** 拖动时 Tauri 会吃掉 pointer；仅真正点击才展开 */
+/** 拖动时 Tauri 会吃掉 click；用 pointer 位移区分轻点与拖动 */
 let orbIgnoreClickUntil = 0;
-function onOrbActivate() {
+let orbPointerDown: { x: number; y: number } | null = null;
+
+function onOrbPointerDown(e: PointerEvent) {
+  orbPointerDown = { x: e.clientX, y: e.clientY };
+}
+
+function onOrbPointerUp(e: PointerEvent) {
   if (Date.now() < orbIgnoreClickUntil) return;
-  void expandFromOrb();
+  const start = orbPointerDown;
+  orbPointerDown = null;
+  if (!start) return;
+  const dx = Math.abs(e.clientX - start.x);
+  const dy = Math.abs(e.clientY - start.y);
+  if (dx < 6 && dy < 6) void expandFromOrb();
 }
 
 function scheduleEdgeCheck() {
-  if (orb.value) {
-    // 球体被拖动时忽略随后的点击，避免松手立刻展开
+  if (orb.value && !applyingOrb) {
+    // 仅用户拖动球体时抑制误触，程序化 setPosition 不算
     orbIgnoreClickUntil = Date.now() + 280;
   }
   if (edgeMoveTimer) clearTimeout(edgeMoveTimer);
@@ -307,36 +331,6 @@ function onThemeSelect(mode: ThemeMode) {
   updateThemeMode(mode);
 }
 
-async function toggleMiniPlayer() {
-  if (orb.value) {
-    await expandFromOrb();
-    return;
-  }
-
-  const win = getCurrentWindow();
-  const size = await win.innerSize();
-  const scale = await win.scaleFactor();
-  const logicalWidth = size.width / scale;
-  const logicalHeight = size.height / scale;
-
-  if (!collapsed.value) {
-    expandedHeight.value = Math.max(logicalHeight, 200);
-    collapsed.value = true;
-    menuOpen.value = false;
-    await nextTick();
-    await win.setMinSize(new LogicalSize(280, COLLAPSED_HEIGHT));
-    await win.setSize(new LogicalSize(logicalWidth, COLLAPSED_HEIGHT));
-    if (isWindows.value) await nudgeWebviewRepaint();
-  } else {
-    collapsed.value = false;
-    await nextTick();
-    await win.setMinSize(new LogicalSize(280, 120));
-    const h = zoomed.value ? ZOOM_HEIGHT : expandedHeight.value || NORMAL_HEIGHT;
-    await win.setSize(new LogicalSize(logicalWidth, h));
-    if (isWindows.value) await nudgeWebviewRepaint();
-  }
-}
-
 async function minimizeToDock() {
   await getCurrentWindow().minimize();
 }
@@ -345,10 +339,6 @@ async function toggleZoom() {
   const win = getCurrentWindow();
   if (orb.value) {
     await expandFromOrb();
-    return;
-  }
-  if (collapsed.value) {
-    await toggleMiniPlayer();
     return;
   }
   const size = await win.innerSize();
@@ -384,8 +374,7 @@ async function quitApp() {
 <template>
   <div
     class="widget"
-    :class="{ collapsed, orb, 'is-windows': isWindows }"
-    :style="orb ? { width: `${ORB_SIZE}px`, height: `${ORB_SIZE}px` } : undefined"
+    :class="{ orb, 'orb-busy': orbBusy, 'is-windows': isWindows, 'is-mac': isMac }"
   >
     <!-- 贴边球体：拖动移动，轻点展开 -->
     <button
@@ -395,7 +384,8 @@ async function quitApp() {
       title="轻点展开 · 按住可拖动"
       aria-label="展开 TextFlow"
       data-tauri-drag-region
-      @click="onOrbActivate"
+      @pointerdown="onOrbPointerDown"
+      @pointerup="onOrbPointerUp"
     >
       <img class="orb-icon" src="/app-icon.png" alt="" draggable="false" />
     </button>
@@ -428,8 +418,8 @@ async function quitApp() {
         <button
           type="button"
           class="tl tl-zoom"
-          :title="collapsed ? '退出迷你模式' : zoomed ? '还原大小' : '放大'"
-          :aria-label="collapsed ? '退出迷你模式' : zoomed ? '还原大小' : '放大'"
+          :title="zoomed ? '还原大小' : '放大'"
+          :aria-label="zoomed ? '还原大小' : '放大'"
           @click="toggleZoom"
         >
           <span class="tl-glyph">+</span>
@@ -444,18 +434,6 @@ async function quitApp() {
         <button
           type="button"
           class="chrome-btn"
-          :class="{ on: collapsed }"
-          :title="collapsed ? '退出迷你模式' : '迷你模式'"
-          :aria-pressed="collapsed"
-          aria-label="迷你模式"
-          @click="toggleMiniPlayer"
-        >
-          Mini
-        </button>
-        <button
-          v-show="!collapsed"
-          type="button"
-          class="chrome-btn"
           :class="{ on: alwaysOnTop }"
           :title="alwaysOnTop ? '取消置顶' : '置顶'"
           :aria-pressed="alwaysOnTop"
@@ -464,7 +442,6 @@ async function quitApp() {
           Pin
         </button>
         <button
-          v-show="!collapsed"
           ref="menuButtonRef"
           type="button"
           class="chrome-btn"
@@ -488,11 +465,11 @@ async function quitApp() {
           <button
             type="button"
             class="win-btn"
-            :title="collapsed ? '退出迷你模式' : zoomed ? '还原' : '最大化'"
-            :aria-label="collapsed ? '退出迷你模式' : zoomed ? '还原' : '最大化'"
+            :title="zoomed ? '还原' : '最大化'"
+            :aria-label="zoomed ? '还原' : '最大化'"
             @click="toggleZoom"
           >
-            <span aria-hidden="true">{{ zoomed && !collapsed ? "❐" : "□" }}</span>
+            <span aria-hidden="true">{{ zoomed ? "❐" : "□" }}</span>
           </button>
           <button
             type="button"
@@ -508,7 +485,7 @@ async function quitApp() {
     </header>
 
     <div
-      v-if="menuOpen && !collapsed"
+      v-if="menuOpen"
       ref="menuPopoverRef"
       class="menu-popover glass-strong"
       @pointerdown.stop
@@ -547,7 +524,7 @@ async function quitApp() {
     </div>
 
     <div
-      v-if="settingsOpen && !collapsed && !orb"
+      v-if="settingsOpen && !orb"
       class="settings-backdrop"
       @pointerdown.self="closeSettings"
     >
@@ -580,7 +557,7 @@ async function quitApp() {
     </div>
 
     <div
-      v-if="hasPending && !collapsed && !orb"
+      v-if="hasPending && !orb"
       class="settings-backdrop preview-backdrop"
       role="dialog"
       aria-label="确认待执行操作"
@@ -603,7 +580,7 @@ async function quitApp() {
       </div>
     </div>
 
-    <main v-show="!collapsed" class="body">
+    <main class="body">
       <div class="toolbar">
         <div v-if="filePath" class="view-tabs" role="tablist" aria-label="视图切换">
           <button
@@ -714,32 +691,40 @@ async function quitApp() {
   color: var(--text);
 }
 
-.widget.collapsed {
-  height: 100%;
-  border-radius: 18px;
-  box-shadow: var(--shadow-collapsed);
-}
-
-.widget.is-windows.collapsed {
-  border-radius: 14px;
+.widget.orb-busy {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .widget.orb {
+  position: relative;
   width: 100%;
   height: 100%;
-  aspect-ratio: 1 / 1;
   border-radius: 50%;
   border: none;
-  background: transparent;
+  /* 必须不透明：Mac 透明窗里若子元素高度塌成 0，整窗会「消失」 */
+  background: #ffffff;
   box-shadow: none;
   overflow: hidden;
 }
 
+.widget.orb .orb-face {
+  transition: none;
+}
+
+/* Windows：scoped 样式也要盖住透明底，避免图标透明角露出白底 */
+.widget.is-windows.orb {
+  background: #153e75;
+  border-radius: 14px;
+}
+
 .orb-face {
+  position: absolute;
+  inset: 0;
   box-sizing: border-box;
-  width: 100%;
-  height: 100%;
-  aspect-ratio: 1 / 1;
+  width: auto;
+  height: auto;
+  margin: 0;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -747,10 +732,19 @@ async function quitApp() {
   padding: 0;
   border: none;
   outline: none;
-  background: transparent;
+  background: #ffffff;
   overflow: hidden;
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--blue-deep) 22%, transparent);
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: none;
+  transition: transform 0.18s ease;
+}
+
+.widget.is-windows .orb-face {
+  background: #153e75;
+  border-radius: 14px;
+}
+
+.widget.is-windows .orb-icon {
+  border-radius: 14px;
 }
 
 .orb-face:focus,
@@ -760,7 +754,6 @@ async function quitApp() {
 
 .orb-face:hover {
   transform: scale(1.04);
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--blue-deep) 18%, transparent);
 }
 
 .orb-face:active {
@@ -775,17 +768,6 @@ async function quitApp() {
   pointer-events: none;
   user-select: none;
   -webkit-user-drag: none;
-}
-
-.widget.collapsed .titlebar {
-  padding: 14px 14px;
-  border-bottom: none;
-  flex: 1;
-  align-items: center;
-}
-
-.widget.collapsed .name {
-  font-size: 13px;
 }
 
 .titlebar {

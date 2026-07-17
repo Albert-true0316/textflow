@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatTaskMeta, parseTaskMeta } from "./format";
+import { formatTaskMeta, parseTaskMeta, stripTemporalPhrases } from "./format";
 import { flattenTasks, parseMarkdown, taskProgress } from "./parser";
 
 describe("parseTaskMeta", () => {
@@ -8,8 +8,20 @@ describe("parseTaskMeta", () => {
     expect(meta).toEqual({
       text: "买菜",
       due: "2026-07-15",
+      time: undefined,
       tags: ["生活", "超市"],
       id: "a3f2",
+    });
+  });
+
+  it("parses clock time", () => {
+    const meta = parseTaskMeta("开会 🗓️2026-07-17 🕘09:00 ^a1b2");
+    expect(meta).toEqual({
+      text: "开会",
+      due: "2026-07-17",
+      time: "09:00",
+      tags: [],
+      id: "a1b2",
     });
   });
 
@@ -17,15 +29,24 @@ describe("parseTaskMeta", () => {
     const raw = formatTaskMeta({
       text: "交周报",
       due: "2026-07-18",
+      time: "14:30",
       tags: ["工作"],
       id: "b7c1",
     });
     expect(parseTaskMeta(raw)).toEqual({
       text: "交周报",
       due: "2026-07-18",
+      time: "14:30",
       tags: ["工作"],
       id: "b7c1",
     });
+  });
+});
+
+describe("stripTemporalPhrases", () => {
+  it("strips date and clock phrases from title", () => {
+    expect(stripTemporalPhrases("明天上午九点开会")).toBe("开会");
+    expect(stripTemporalPhrases("周五交报告")).toBe("交报告");
   });
 });
 

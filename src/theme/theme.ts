@@ -17,7 +17,7 @@ function resolveTheme(mode: ThemeMode): "light" | "dark" {
   return mode;
 }
 
-export function applyTheme(mode: ThemeMode = "dark") {
+export function applyTheme(mode: ThemeMode = "system") {
   const effective = resolveTheme(mode);
   document.documentElement.dataset.theme = effective;
   document.documentElement.dataset.themeMode = mode;
@@ -28,7 +28,7 @@ export function getThemeMode(): ThemeMode {
   if (stored === "light" || stored === "dark" || stored === "system") {
     return stored;
   }
-  return "dark";
+  return "system";
 }
 
 export function initTheme() {

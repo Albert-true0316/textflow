@@ -51,7 +51,7 @@ export function getTaskId(item: ListItem): string {
 export function setTaskItemContent(
   item: ListItem,
   completed: boolean,
-  meta: { text: string; due?: string; tags?: string[]; id: string },
+  meta: { text: string; due?: string; time?: string; tags?: string[]; id: string },
 ) {
   item.checked = completed;
   const text = formatTaskMeta(meta);
@@ -66,7 +66,7 @@ export function setTaskItemContent(
 }
 
 export function createTaskItem(
-  meta: { text: string; due?: string; tags?: string[]; id: string },
+  meta: { text: string; due?: string; time?: string; tags?: string[]; id: string },
   completed = false,
 ): ListItem {
   return {

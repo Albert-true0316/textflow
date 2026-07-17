@@ -5,6 +5,7 @@ export type ScheduleTask = {
   text: string;
   completed: boolean;
   due?: string;
+  time?: string;
   tags: string[];
   children: ScheduleTask[];
   depth: number;
@@ -30,6 +31,7 @@ type FlatNode = {
   text: string;
   completed: boolean;
   due?: string;
+  time?: string;
   tags: string[];
   depth: number;
   parentId?: string;
@@ -108,6 +110,7 @@ function walkFlat(
       text: task.text,
       completed: task.completed,
       due: task.due,
+      time: task.time,
       tags: task.tags,
       depth,
       parentId,
@@ -139,6 +142,7 @@ export function rebuildTreesInBucket(nodes: FlatNode[]): ScheduleTask[] {
       text: n.text,
       completed: n.completed,
       due: n.due,
+      time: n.time,
       tags: n.tags,
       children: [],
       depth: 0,

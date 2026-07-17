@@ -4,6 +4,8 @@ export interface Task {
   text: string;
   completed: boolean;
   due?: string;
+  /** 可选钟点 HH:mm */
+  time?: string;
   tags: string[];
   children: Task[];
 }

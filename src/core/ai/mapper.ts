@@ -5,6 +5,7 @@ import type { Op } from "../ops";
 import type { Task } from "../types";
 import type { AppSettings } from "../settings";
 import { resolveEndpoint } from "../settings";
+import type { ProviderId } from "./providers";
 import {
   AI_TOOLS,
   buildTaskContext,
@@ -42,6 +43,16 @@ function prefersAutoToolChoice(model: string): boolean {
     m.includes("thinking") ||
     /(^|[/_\-])r1($|[/_\-])/.test(m)
   );
+}
+
+/**
+ * DeepSeek V4 默认开启 Thinking；本应用是单次 tool call，关闭 Thinking 更稳。
+ * 仅官方 DeepSeek Provider 传该字段，避免中转站/其它厂商 400。
+ */
+function shouldDisableThinking(providerId: ProviderId, model: string): boolean {
+  if (providerId !== "deepseek") return false;
+  const m = model.toLowerCase();
+  return /v4/.test(m) || m === "deepseek-chat" || m === "deepseek-reasoner";
 }
 
 function assertOnline() {
@@ -91,24 +102,29 @@ export async function mapNaturalLanguage(options: {
     },
   ];
 
+  const body: Record<string, unknown> = {
+    model,
+    messages,
+    tools: AI_TOOLS,
+    // V4 thinking 等只接受 auto/none；其它模型仍强制走 apply_todo_ops
+    tool_choice: prefersAutoToolChoice(model)
+      ? "auto"
+      : {
+          type: "function",
+          function: { name: "apply_todo_ops" },
+        },
+    // 不传 temperature：部分 Claude 等模型会因该字段返回 400
+  };
+  if (shouldDisableThinking(options.settings.providerId, model)) {
+    body.thinking = { type: "disabled" };
+  }
+
   let response: AiChatResponse;
   try {
     response = await postChatCompletions({
       url,
       apiKey: key,
-      body: {
-        model,
-        messages,
-        tools: AI_TOOLS,
-        // V4 thinking 等只接受 auto/none；其它模型仍强制走 apply_todo_ops
-        tool_choice: prefersAutoToolChoice(model)
-          ? "auto"
-          : {
-              type: "function",
-              function: { name: "apply_todo_ops" },
-            },
-        // 不传 temperature：部分 Claude 等模型会因该字段返回 400
-      },
+      body,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -146,7 +162,9 @@ export async function mapNaturalLanguage(options: {
   if (!toolCall) {
     return {
       ops: [],
-      rejected: ["模型没有返回工具调用"],
+      rejected: [
+        `模型没有返回工具调用（当前：${model}）。可换 deepseek-v4-flash / deepseek-chat 再试。`,
+      ],
       rawContent: message?.content ?? undefined,
     };
   }

@@ -33,6 +33,7 @@ function listItemToTask(item: ListItem): Task | null {
     text: meta.text,
     completed: item.checked === true,
     due: meta.due,
+    time: meta.time,
     tags: meta.tags,
     children: childTasks,
   };

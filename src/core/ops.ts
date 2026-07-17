@@ -6,6 +6,7 @@ export type Op =
       op: "add";
       text: string;
       due?: string;
+      time?: string;
       tags?: string[];
       parent_id?: string;
     }
@@ -14,13 +15,19 @@ export type Op =
       id: string;
       new_text?: string;
       new_due?: string | null;
+      new_time?: string | null;
       new_tags?: string[];
     }
   | { op: "delete"; id: string }
   | {
       op: "decompose";
       id: string;
-      subtasks: Array<{ text: string; due?: string; tags?: string[] }>;
+      subtasks: Array<{
+        text: string;
+        due?: string;
+        time?: string;
+        tags?: string[];
+      }>;
     };
 
 export interface ApplyResult {

@@ -11,12 +11,15 @@ import { initTheme, setThemeMode } from "./theme/theme";
   else if (/Linux/i.test(ua)) document.documentElement.dataset.platform = "linux";
 })();
 
-initTheme();
-/** 一次性启用深夜模式；之后可在设置里改，不再强行覆盖 */
+/** 撤销旧版「首次启动强制深夜」；之后以用户设置为准 */
 const NIGHT_FLAG = "textflow.theme.night-on-v1";
-if (!localStorage.getItem(NIGHT_FLAG)) {
-  setThemeMode("dark");
-  localStorage.setItem(NIGHT_FLAG, "1");
+if (localStorage.getItem(NIGHT_FLAG)) {
+  localStorage.removeItem(NIGHT_FLAG);
+  if (localStorage.getItem("textflow.theme") === "dark") {
+    setThemeMode("system");
+  }
 }
+
+initTheme();
 
 createApp(App).mount("#app");

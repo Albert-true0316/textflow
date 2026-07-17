@@ -1,6 +1,6 @@
 [package]
 name = "textflow"
-version = "1.0.0"
+version = "1.0.1"
 description = "Local-first AI natural-language todo widget"
 authors = ["TextFlow"]
 edition = "2021"
@@ -20,5 +20,7 @@ tauri-plugin-http = "2"
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# native-roots：认 Windows/macOS 系统证书（杀软 HTTPS 扫描、企业根证书）
+# system-proxy：读系统/环境代理（Clash 系统代理等）
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "system-proxy"] }
 keyring = { version = "3", features = ["apple-native", "windows-native"] }

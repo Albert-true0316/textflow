@@ -52,6 +52,9 @@ function applyOne(
       if (op.new_due !== undefined) {
         meta.due = op.new_due === null ? undefined : op.new_due;
       }
+      if (op.new_time !== undefined) {
+        meta.time = op.new_time === null ? undefined : op.new_time;
+      }
       if (op.new_tags !== undefined) meta.tags = op.new_tags;
       meta.id = op.id;
       setTaskItemContent(
@@ -75,6 +78,7 @@ function applyOne(
       const meta = {
         text,
         due: op.due,
+        time: op.time,
         tags: op.tags ?? [],
         id,
       };
@@ -102,7 +106,7 @@ function applyOne(
         const id = generateId(ids);
         list.children.push(
           createTaskItem(
-            { text, due, tags: s.tags ?? [], id },
+            { text, due, time: s.time, tags: s.tags ?? [], id },
             false,
           ),
         );

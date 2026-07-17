@@ -46,5 +46,6 @@ describe("resolveEndpoint", () => {
       decomposeCount: 4,
     });
     expect(ep.url).toBe("https://api.deepseek.com/chat/completions");
+    expect(ep.model).toBe("deepseek-chat");
   });
 });

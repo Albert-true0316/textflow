@@ -27,7 +27,14 @@ describe("validateOps", () => {
     );
     expect(ops).toEqual([
       { op: "complete", id: "a3f2" },
-      { op: "add", text: "周五交报告", due: "2026-07-17", tags: undefined, parent_id: undefined },
+      {
+        op: "add",
+        text: "交报告",
+        due: "2026-07-17",
+        time: undefined,
+        tags: undefined,
+        parent_id: undefined,
+      },
     ]);
     expect(rejected.some((r) => r.includes("无效 id"))).toBe(true);
   });
@@ -64,12 +71,39 @@ describe("validateOps", () => {
         op: "decompose",
         id: "a3f2",
         subtasks: [
-          { text: "列出清单", due: undefined, tags: undefined },
-          { text: "去超市", due: undefined, tags: undefined },
-          { text: "结账回家", due: undefined, tags: undefined },
+          { text: "列出清单", due: undefined, time: undefined, tags: undefined },
+          { text: "去超市", due: undefined, time: undefined, tags: undefined },
+          { text: "结账回家", due: undefined, time: undefined, tags: undefined },
         ],
       },
     ]);
     expect(rejected).toEqual([]);
+  });
+
+  it("cleans temporal phrases and keeps clock time on add", () => {
+    const { ops, rejected } = validateOps(
+      {
+        ops: [
+          {
+            op: "add",
+            text: "明天上午九点开会",
+            due: "2026-07-17",
+            time: "9:00",
+          },
+        ],
+      },
+      tasks,
+    );
+    expect(rejected).toEqual([]);
+    expect(ops).toEqual([
+      {
+        op: "add",
+        text: "开会",
+        due: "2026-07-17",
+        time: "09:00",
+        tags: undefined,
+        parent_id: undefined,
+      },
+    ]);
   });
 });

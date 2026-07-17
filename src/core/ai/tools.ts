@@ -1,6 +1,7 @@
 import type { Op } from "../ops";
 import type { Task } from "../types";
 import { flattenTasks } from "../parser";
+import { normalizeClockTime, stripTemporalPhrases } from "../format";
 
 export const AI_TOOLS = [
   {
@@ -31,8 +32,16 @@ export const AI_TOOLS = [
                   ],
                 },
                 id: { type: "string" },
-                text: { type: "string" },
+                text: {
+                  type: "string",
+                  description:
+                    "事项本身，不要包含「明天/上午九点」等时间话术",
+                },
                 due: { type: "string", description: "YYYY-MM-DD" },
+                time: {
+                  type: "string",
+                  description: "可选钟点，24小时制 HH:mm，如 09:00",
+                },
                 tags: { type: "array", items: { type: "string" } },
                 parent_id: {
                   type: "string",
@@ -40,6 +49,7 @@ export const AI_TOOLS = [
                 },
                 new_text: { type: "string" },
                 new_due: { type: ["string", "null"] },
+                new_time: { type: ["string", "null"] },
                 new_tags: { type: "array", items: { type: "string" } },
                 subtasks: {
                   type: "array",
@@ -49,6 +59,7 @@ export const AI_TOOLS = [
                     properties: {
                       text: { type: "string" },
                       due: { type: "string" },
+                      time: { type: "string" },
                       tags: { type: "array", items: { type: "string" } },
                     },
                     required: ["text"],
@@ -73,8 +84,9 @@ export function buildTaskContext(tasks: Task[]): string {
       const pad = "  ".repeat(t.depth);
       const mark = t.completed ? "[x]" : "[ ]";
       const due = t.due ? ` due:${t.due}` : "";
+      const time = t.time ? ` time:${t.time}` : "";
       const tags = t.tags.length ? ` tags:${t.tags.join(",")}` : "";
-      return `${pad}- ${mark} ${t.text} ^${t.id}${due}${tags}`;
+      return `${pad}- ${mark} ${t.text} ^${t.id}${due}${time}${tags}`;
     })
     .join("\n");
 }
@@ -84,17 +96,20 @@ export function systemPrompt(today: string, decomposeCount = 4): string {
 
 用户可能说得很随意，例如：
 - 「买菜搞定了」→ complete 对应任务
-- 「加个周五交报告」→ add，due 换算成具体日期
+- 「加个周五交报告」→ add，text「交报告」，due 换算成具体日期
+- 「明天上午九点开会」→ add，text「开会」，due=明天，time=09:00（不要把时间话术留在 text 里）
 - 「帮我拆一下准备答辩」→ decompose
 - 「删掉那个旧的」→ 根据上下文匹配 id 再 delete
 
 规则：
 1. 只通过 apply_todo_ops 工具输出，不要改写整份文件，不要输出 Markdown 正文。
 2. 动已有任务时 id 必须是上下文里已有的那串（例如 a3f2），不要带 ^ 前缀；认不准就返回空 ops，别瞎猜。
-3. 「今天 / 明天 / 本周五 / 下周一 / 7月18日」等时间线索一律换算成 due 字段（YYYY-MM-DD）；改期用 edit 的 new_due。
-4. add 新增任务时：用户只要提到时间（含隐含「今晚」「这周末」「月底前某天」），必须填 due；完全没提时间可不填。
-5. 拆解用 decompose：id 填要拆的那条任务（不带 ^），子任务尽量带可执行的 due（若父任务有截止日期，子任务 due 应不晚于父任务）；输出 3–6 条具体子任务（默认约 ${decomposeCount} 条，可 ±1）；禁止空话。子任务 ID 由执行器生成，不要自造 ^id。
-6. 听不懂就返回空 ops 数组。`;
+3. 「今天 / 明天 / 本周五 / 下周一 / 7月18日」等日期线索一律换算成 due 字段（YYYY-MM-DD）；改期用 edit 的 new_due。
+4. 「上午九点 / 14:30 / 晚上8点」等钟点写入 time 字段（24小时制 HH:mm）；没有钟点可不填 time。
+5. add / edit 的 text（或 new_text）只写事项本身，必须去掉「今天/明天/上午/九点」等时间话术。错误：「明天上午九点开会」；正确：text「开会」+ due + time。
+6. add 新增任务时：用户只要提到日期（含隐含「今晚」「这周末」），必须填 due；提到钟点必须填 time。
+7. 拆解用 decompose：id 填要拆的那条任务（不带 ^），子任务尽量带可执行的 due/time（若父任务有截止日期，子任务 due 应不晚于父任务）；输出 3–6 条具体子任务（默认约 ${decomposeCount} 条，可 ±1）；禁止空话。子任务 ID 由执行器生成，不要自造 ^id。
+8. 听不懂就返回空 ops 数组。`;
 }
 
 function asString(v: unknown): string | undefined {
@@ -164,11 +179,12 @@ export function validateOps(
           break;
         }
         case "add": {
-          const text = asString(row.text);
-          if (!text) {
+          const rawText = asString(row.text);
+          if (!rawText) {
             rejected.push("add: 缺少 text");
             break;
           }
+          const text = stripTemporalPhrases(rawText);
           const parent_id = normalizeTaskId(asString(row.parent_id));
           if (parent_id && !ids.has(parent_id)) {
             rejected.push("add: 无效归属任务 id");
@@ -178,6 +194,7 @@ export function validateOps(
             op: "add",
             text,
             due: asString(row.due),
+            time: normalizeClockTime(asString(row.time)),
             tags: asStringArray(row.tags),
             parent_id,
           });
@@ -189,14 +206,21 @@ export function validateOps(
             rejected.push("edit: 无效 id");
             break;
           }
+          const new_text_raw = asString(row.new_text);
           ops.push({
             op: "edit",
             id,
-            new_text: asString(row.new_text),
+            new_text: new_text_raw
+              ? stripTemporalPhrases(new_text_raw)
+              : undefined,
             new_due:
               row.new_due === null
                 ? null
                 : asString(row.new_due),
+            new_time:
+              row.new_time === null
+                ? null
+                : normalizeClockTime(asString(row.new_time)),
             new_tags: asStringArray(row.new_tags),
           });
           break;
@@ -218,8 +242,11 @@ export function validateOps(
               const text = asString((s as { text?: unknown }).text);
               if (!text) return null;
               return {
-                text,
+                text: stripTemporalPhrases(text),
                 due: asString((s as { due?: unknown }).due),
+                time: normalizeClockTime(
+                  asString((s as { time?: unknown }).time),
+                ),
                 tags: asStringArray((s as { tags?: unknown }).tags),
               };
             })
@@ -258,7 +285,7 @@ export function describeOp(op: Op, tasks: Task[]): string {
     case "delete":
       return `删除：${title(op.id)}`;
     case "add":
-      return `新增：${op.text}${op.parent_id ? `（归入「${title(op.parent_id)}」下）` : ""}`;
+      return `新增：${op.text}${op.due ? ` · ${op.due}` : ""}${op.time ? ` ${op.time}` : ""}${op.parent_id ? `（归入「${title(op.parent_id)}」下）` : ""}`;
     case "edit":
       return `修改：${title(op.id)}${op.new_text ? ` → ${op.new_text}` : ""}`;
     case "decompose":
