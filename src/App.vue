@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { LogicalSize } from "@tauri-apps/api/dpi";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import ScheduleView from "./components/ScheduleView.vue";
 import TagsView from "./components/TagsView.vue";
@@ -237,9 +237,11 @@ function scheduleEdgeCheck() {
     orbIgnoreClickUntil = Date.now() + 280;
   }
   if (edgeMoveTimer) clearTimeout(edgeMoveTimer);
+  // Win：稍晚再判贴边，给系统 Snap 分屏一点时间，也避免误触
+  const delay = isWindows.value ? 420 : 160;
   edgeMoveTimer = setTimeout(() => {
     void checkEdgeSnap();
-  }, 160);
+  }, delay);
 }
 
 async function checkEdgeSnap() {
@@ -249,7 +251,21 @@ async function checkEdgeSnap() {
     const win = getCurrentWindow();
     const pos = await win.outerPosition();
     const side = await detectEdgeSide(pos);
-    if (side) await enterOrb(side);
+    if (!side) return;
+
+    // Win11 贴边常先变成半屏分屏；那种尺寸不要收成球
+    if (isWindows.value) {
+      const scale = await win.scaleFactor();
+      const size = await win.outerSize();
+      const monitor = await currentMonitor();
+      if (monitor) {
+        const winW = size.width / scale;
+        const monW = monitor.size.width / scale;
+        if (winW > monW * 0.42 && winW < monW * 0.58) return;
+      }
+    }
+
+    await enterOrb(side);
   } catch {
     /* 浏览器预览或权限不足时忽略 */
   }
@@ -288,13 +304,6 @@ async function submitDraft() {
   if (Array.isArray(result)) {
     await runOps(result, "AI 操作");
   }
-}
-
-async function addManually() {
-  if (!filePath.value || writing.value) return;
-  const text = draft.value;
-  draft.value = "";
-  await addTask(text);
 }
 
 async function addUnderTask(parentId: string, text: string) {
@@ -426,11 +435,36 @@ async function quitApp() {
         </button>
       </div>
 
+      <!-- Windows：☰ · Pin | TextFlow | ─ □ × -->
+      <div v-if="isWindows" class="titlebar-left-win" @pointerdown.stop>
+        <button
+          ref="menuButtonRef"
+          type="button"
+          class="chrome-btn"
+          :class="{ on: menuOpen || settingsOpen }"
+          title="菜单"
+          aria-label="菜单"
+          @click="openMenu"
+        >
+          ☰
+        </button>
+        <button
+          type="button"
+          class="chrome-btn"
+          :class="{ on: alwaysOnTop }"
+          :title="alwaysOnTop ? '取消置顶' : '置顶'"
+          :aria-pressed="alwaysOnTop"
+          @click="togglePin"
+        >
+          Pin
+        </button>
+      </div>
+
       <div class="brand" data-tauri-drag-region>
         <span class="name">TextFlow</span>
       </div>
 
-      <div class="titlebar-right" @pointerdown.stop>
+      <div v-if="isMac" class="titlebar-right" @pointerdown.stop>
         <button
           type="button"
           class="chrome-btn"
@@ -452,35 +486,36 @@ async function quitApp() {
         >
           ☰
         </button>
-        <div v-if="isWindows" class="win-controls">
-          <button
-            type="button"
-            class="win-btn"
-            title="最小化"
-            aria-label="最小化"
-            @click="minimizeToDock"
-          >
-            <span aria-hidden="true">─</span>
-          </button>
-          <button
-            type="button"
-            class="win-btn"
-            :title="zoomed ? '还原' : '最大化'"
-            :aria-label="zoomed ? '还原' : '最大化'"
-            @click="toggleZoom"
-          >
-            <span aria-hidden="true">{{ zoomed ? "❐" : "□" }}</span>
-          </button>
-          <button
-            type="button"
-            class="win-btn win-close"
-            title="隐藏到托盘（不退出；退出请用 ☰ 或托盘菜单）"
-            aria-label="隐藏到托盘"
-            @click="closeToTray"
-          >
-            <span aria-hidden="true">×</span>
-          </button>
-        </div>
+      </div>
+
+      <div v-if="isWindows" class="win-controls" @pointerdown.stop>
+        <button
+          type="button"
+          class="win-btn"
+          title="最小化"
+          aria-label="最小化"
+          @click="minimizeToDock"
+        >
+          <span class="win-btn-glyph" aria-hidden="true">─</span>
+        </button>
+        <button
+          type="button"
+          class="win-btn"
+          :title="zoomed ? '还原' : '最大化'"
+          :aria-label="zoomed ? '还原' : '最大化'"
+          @click="toggleZoom"
+        >
+          <span class="win-btn-glyph" aria-hidden="true">{{ zoomed ? "❐" : "□" }}</span>
+        </button>
+        <button
+          type="button"
+          class="win-btn win-close"
+          title="隐藏到托盘（不退出；退出请用 ☰ 或托盘菜单）"
+          aria-label="隐藏到托盘"
+          @click="closeToTray"
+        >
+          <span class="win-btn-glyph" aria-hidden="true">×</span>
+        </button>
       </div>
     </header>
 
@@ -662,11 +697,11 @@ async function quitApp() {
           v-if="filePath && hasKey"
           type="button"
           class="text-btn composer-add"
-          title="手动新增任务"
+          title="发送给 AI（与 Enter 相同）"
           :disabled="writing || aiBusy || !draft.trim()"
-          @click="addManually"
+          @click="submitDraft"
         >
-          添加
+          发送
         </button>
       </div>
       <p v-if="aiBusy" class="hint">AI 理解中…</p>
@@ -799,40 +834,59 @@ async function quitApp() {
 }
 
 .titlebar-win {
-  grid-template-columns: 1fr auto;
-  padding-right: 0;
+  grid-template-columns: auto 1fr auto;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  min-height: 32px;
+}
+
+.titlebar-left-win {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  cursor: default;
 }
 
 .titlebar-win .brand {
-  justify-content: flex-start;
-  padding-left: 2px;
+  justify-content: center;
+  padding: 0 8px;
 }
 
-.titlebar-win .titlebar-right {
-  min-width: 0;
-  gap: 2px;
+.titlebar-win .name {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .win-controls {
   display: flex;
   align-items: stretch;
-  margin: -11px -12px -9px 6px;
-  height: calc(100% + 20px);
+  height: 100%;
+  margin: 0;
 }
 
 .win-btn {
-  width: 44px;
+  width: 46px;
+  min-height: 32px;
   display: grid;
   place-items: center;
-  font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text);
   border-radius: 0;
-  transition: background 0.12s ease, color 0.12s ease;
+  background: transparent;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.win-btn-glyph {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 400;
+  transform: translateY(-0.5px);
 }
 
 .win-btn:hover {
-  background: var(--win-btn-hover);
-  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
 }
 
 .win-btn.win-close:hover {

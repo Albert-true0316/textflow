@@ -8,8 +8,9 @@ import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 
 /** 球体逻辑边长（偶数，便于高分屏对齐） */
 export const ORB_SIZE = 60;
-/** 贴左边/右边进入球体的阈值（逻辑像素） */
+/** 贴左边/右边进入球体的阈值（逻辑像素）；Win 更紧，减轻与系统分屏抢边 */
 export const EDGE_THRESHOLD = 32;
+export const EDGE_THRESHOLD_WINDOWS = 10;
 
 export type OrbSide = "left" | "right";
 
@@ -47,7 +48,10 @@ export async function detectEdgeSide(
   const monitor = await currentMonitor();
   if (!monitor) return null;
 
-  const threshold = (opts?.thresholdLogical ?? EDGE_THRESHOLD) * scale;
+  const thresholdLogical = isWindowsUa()
+    ? (opts?.thresholdLogical ?? EDGE_THRESHOLD_WINDOWS)
+    : (opts?.thresholdLogical ?? EDGE_THRESHOLD);
+  const threshold = thresholdLogical * scale;
   const leftGap = position.x - monitor.position.x;
   const rightGap =
     monitor.position.x + monitor.size.width - (position.x + size.width);
